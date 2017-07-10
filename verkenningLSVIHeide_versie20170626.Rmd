@@ -940,6 +940,9 @@ vergelijking %>%
 
 \FloatBarrier
 
+De grote verschillen in oppervlakte-aandeel ongunstig tussen de rapportage van 2013 en de resultaten van het habitat meetnet zouden gedeeltelijk verklaart kunnen worden doordat dit in de rapportage van 2013 zeer ruw is ingeschat. Anderzijds speelt de schaal waarop een habitatlocatie als lokaal gunstig of ongunstig wordt beoordeeld ook een zeer belangrijke rol. 
+
+Om de beoordeling minder afhankelijk te maken van de schaal, zouden we ook de gemiddelde waarde van een analysevariabele/indicator kunnen in rekening nemen bij de beoordeling.  
 
 
 
