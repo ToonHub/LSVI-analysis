@@ -1,0 +1,552 @@
+---
+title: "Meetnet habitatkwaliteit verkenning dataset heidehabitats en habitattype 6510"
+author: "Toon Westra"
+date: "7 april 2017"
+output:
+  INBOmd::inbo_rapport_2015
+---
+
+```{r markdownsetup, cache=FALSE, include=FALSE, echo=FALSE}
+#initialiseer markdown
+library(knitr)
+library(pander)
+opts_chunk$set(fig.width=5, fig.height = 5, fig.path = '')
+opts_chunk$set(echo = FALSE)
+panderOptions_default <- panderOptions()
+```
+
+```{r Rinit, echo=FALSE, warning = FALSE, message = FALSE, results = 'hide'}
+#initialiseer R omgeving
+#Het Rmd bestand moet in de root staan van je project
+#Je mag geen setwd() uitvoeren binnen een R code chunk in R markdown
+source("Scripts/Omgevingsvariabelen_versie2016-10-12.R")
+source("Scripts/LSVI/LSVI_functies.R")
+
+library(rgdal)
+library(dplyr)
+library(tidyr)
+```
+
+# Overzicht opgemeten meetpunten
+
+\autoref{tab:voortgang} geeft een overzicht van de bezochte en opgemeten meetpunten. De tabel geeft ook de reden waarom bezochte plots niet werden opgemeten. Op basis daarvan kennen we een status toe aan elke plot: 'Opname uitgevoerd', 'Geen opname' of 'Opname to do'. 
+
+Sommige zaken zijn nog niet volledig duidelijk:
+
+* De combinatie 'visited' = 'ja' en 'Reason' = 'Nog geen terreinbezoek uitgevoerd' lijkt tegenstrijdig. Moeten die punten nog bezocht worden? 
+
+* Moeten de punten 'wellicht geen doelveg' nog verder onderzocht worden?
+
+* Eén meetpunt (IDPlots = 832386) heeft de combinatie 'visited' = 'Planning 2017' en 'Measured' = 'ja'. De gegevens van deze plot zijn ook terug te vinden in de FieldMapdatabank.   
+
+
+```{r overzichtVoortgang, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+voortgang <- read.csv2("Data/MeetgegevensHeide6510/VoortgangMeetnetHeide6510_Versie2016-12-21.csv", header = TRUE)
+
+voortgang <- select(voortgang, IDPlots = RANKING, Visited = punt.bezocht_adj, Measured = opname, Reason = reden.geen.opname_adj, HabObserved = geobserveerd.habitat )
+
+voortgang$Status <- ifelse(voortgang$Visited == "ja" & voortgang$Measured == "ja", "Opname uitgevoerd",
+                    ifelse(voortgang$Visited == "ja" & voortgang$Measured == "nee", ifelse(voortgang$Reason %in% c("Geen opname : geen doelhabitat", "Geen opname : permanent nt toegankelijk", "wellicht geen doelveg"), "Geen opname", "Opname to do"), "Opname to do"))
+
+overzicht_voortgang <- summarise(group_by(voortgang, Visited, Measured, Reason, Status),
+                                  nPlots = n())
+
+pandoc.table(overzicht_voortgang, caption = "\\label{tab:voortgang} Overzicht status van de meetpunten")
+```
+
+
+# Inlezen meetgegevens uit fieldmapdatabank
+
+Voor de verkenning van de databank gebruiken we gegevens uit verschillende tabellen van de fieldmapdatabank.
+
+* De tabel Standdiscription bevat gegevens over het geobserveerde habitat, in sommige gevallen opgesplitst in segmenten per plot.
+
+* De tabellen SiteDiscriptionHeide en SiteDiscription6510 bevatten de variabelen opgemeten in de structuuplot.
+
+* De tabel VegPQ geeft de bedekking van de vegetatielagen ingeschat in de vegetatieplot.
+
+* De tabel Herblayer geeft de bedekking van alle aanwezige soorten in de kruidlaag in de vegetatieplot.
+
+```{r dataInlezen,  echo=FALSE, message=FALSE, warning = FALSE, results='hide'}
+
+sampleHeide <- getSample(fileSample = sampleHeideFile)
+
+sample6510 <- getSample(fileSample = sample6510File)
+
+habObserved <- getObservedHabMHK(db = dbHeideEn6510_2016)
+
+coverPlots <- getCoverVeglayersMHK(db = dbHeideEn6510_2016) 
+
+coverSpecies <- getCoverSpeciesMHK(db = dbHeideEn6510_2016)
+
+structureHeide <- getStructurePlotHeide(db = dbHeideEn6510_2016)
+
+structure6510 <- getStructurePlot6510(db = dbHeideEn6510_2016)
+
+metadata <- getMetaDataMHK_2016()
+
+heide6510 <- c("4010", "4030", "2310", "6510_hu", "2330_bu",  "6510_hua", "6510_hus", "6510_huk", "6510", "2330")
+
+
+```
+
+
+```{r dataManipulatie, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+
+coverPlots$VeglayerMeasured <- !is.na(coverPlots$CoverHerblayer)
+structureHeide$StructureMeasured <- !is.na(structureHeide$Shrub_and_Treelayer_18m)
+structure6510$StructureMeasured <-  !is.na(structure6510$Shrub_and_Treelayer_18m)
+
+coverSpeciesPlot <- summarise(group_by(coverSpecies,IDPlots),
+                              SpeciesVeg = n() > 0,
+                              SpeciesHerb = sum(Vegetatielaag == "kruidlaag") > 0,
+                              SpeciesShrub= sum (Vegetatielaag == "struiklaag") > 0,
+                              SpeciesTree = sum (Vegetatielaag == "boomlaag") > 0)
+                            
+coverSpeciesPlot$VegspeciesMeasured <-  coverSpeciesPlot$SpeciesVeg                            
+
+plotMeasure <- full_join(select(coverPlots, IDPlots, HabObservedPQ, VeglayerMeasured), rbind(select(structureHeide, IDPlots, StructureMeasured), select(structure6510, IDPlots, StructureMeasured)), by = "IDPlots")
+
+plotMeasure <- full_join(plotMeasure, select(coverSpeciesPlot, IDPlots, VegspeciesMeasured), by = "IDPlots")
+
+plotMeasure <- full_join(habObserved, plotMeasure, by = "IDPlots")
+plotMeasure$HabObserved <- as.character(plotMeasure$HabObserved)
+plotMeasure$HabObservedPQ <- as.character(plotMeasure$HabObservedPQ)
+
+#plotMeasure <- filter(plotMeasure, HabObserved %in% heide6510)
+plotMeasure <- mutate(group_by(plotMeasure,IDPlots),
+                      nbSegmentsHab = n() )
+
+# Als de plot uit segmenten bestaat met verschillende habitattypen, selecteren we enkel de segmenten die overeenkomen met het habitattype van de vegetatieplot
+plotMeasure$Select <- (plotMeasure$nbSegmentsHab == 1) | ((plotMeasure$nbSegmentsHab > 1) & (plotMeasure$HabObserved == plotMeasure$HabObservedPQ))
+
+plotMeasure <- filter(plotMeasure, Select)
+
+# Per plot verschillende segmenten met zelfde habitat samenvoegen
+plotMeasure <- summarise(group_by(plotMeasure, IDPlots),
+                         HabObserved = unique(HabObserved),
+                         Weight = sum(Weight),
+                         VeglayerMeasured = unique(VeglayerMeasured),
+                         VegspeciesMeasured = unique(VegspeciesMeasured),
+                         StructureMeasured = unique(StructureMeasured))
+
+#plotMeasure$IDPlots <- factor(plotMeasure$IDPlots)
+#sampleHeide <- filter(sampleHeide, is.na(sampleHeide$Orthocontr) | sampleHeide$Orthocontr == "1")
+
+sample <- rbind (select(sampleHeide, -Orthocontr), sample6510)
+sample$IDPlots <- as.numeric(as.character(sample$IDPlots))
+
+
+habMatch <- full_join (sample, plotMeasure, by ="IDPlots")
+
+habMatch <- left_join(habMatch, select(metadata, IDPlots, YearMeasured = Year), by ="IDPlots")
+
+habMatch <- left_join(habMatch, select(voortgang, IDPlots, Status), by = "IDPlots")
+
+habMatch_planned <- filter(habMatch, !is.na(Status))
+
+habMatch_visited <- filter(habMatch_planned, !is.na(HabObserved) | Status %in% c("Opname uitgevoerd", "Geen opname"))
+habMatch_visited$HabObserved <- ifelse(is.na(habMatch_visited$HabObserved), "NoHab", habMatch_visited$HabObserved)
+
+habMatch_measured <- filter(habMatch, !is.na(HabObserved) )
+
+habMatch_measured_unique <- summarise(group_by(habMatch_measured,IDPlots, SBZH, x,y, Weight, HabObserved, YearMeasured ),
+                                      HabTarget1 = HabTarget1[1],
+                                      HabTarget2 = HabTarget2[1])
+
+habMatch_measured_unique <- ungroup(habMatch_measured_unique)
+
+```
+
+```{r compareDb, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+habObserved_2014_2015 <- getObservedHabMHK(db = dbHeideEn6510_2014_2015)
+
+statusFieldwork_2014_2015 <- getStatusFieldWork()
+
+habmatch_2014_2015 <- left_join(habObserved_2014_2015, statusFieldwork_2014_2015, by = "IDPlots")
+
+habmatch_2014_2015 <- filter(habmatch_2014_2015, Status_Fieldwork == 1 & is.na(Info_Status_Fieldwork))
+
+habmatch_2014_2015 <- filter(habmatch_2014_2015, IDSegments == 1)
+
+coverPlots2 <- getCoverVeglayersMHK(db = dbHeideEn6510_2014_2015) 
+
+coverSpecies2 <- getCoverSpeciesMHK(db = dbHeideEn6510_2014_2015)
+
+structureHeide2 <- getStructurePlotHeide(db = dbHeideEn6510_2014_2015)
+structureHeide2$StructureMeasured <- !is.na(structureHeide2$Shrub_and_Treelayer_18m)
+
+structure65102 <- getStructurePlot6510(db = dbHeideEn6510_2014_2015)
+structure65102$StructureMeasured <- !is.na(structure65102$Shrub_and_Treelayer_18m)
+
+structure2 <- rbind(select(structureHeide2, IDPlots, StructureMeasured), select(structure65102, IDPlots, StructureMeasured))
+
+habmatch_2014_2015 <- left_join(habmatch_2014_2015, structure2, by ="IDPlots")
+
+
+habmatch_2014_2015$VegSpeciesMeasured <- habmatch_2014_2015$IDPlots %in% coverSpecies2$IDPlots
+
+habmatch_2014_2015 <- filter(habmatch_2014_2015,  VegSpeciesMeasured)
+
+habMeasured_2014_2015 <- select(habmatch_2014_2015, IDPlots, HabObserved_2014_2015 = HabObserved, StructureMeasured_2014_2015 = StructureMeasured, VegSpeciesMeasured_2014_2015 = VegSpeciesMeasured)
+
+habCompareDb <- full_join(plotMeasure, habMeasured_2014_2015, by = "IDPlots")
+
+```
+
+
+# Verkenning databank
+
+In \autoref{tab:missingData} geven we een overzicht van ontbrekende gegevens van opgemeten punten. De aanwezigheid van volgende gegevens werd daarbij geëvalueerd:
+
+* bedekking van vegetatielagen ('VeglayerMeasured')
+* bedekking van aanwezige soorten ('VegspeciesMeasured')
+* strutuurgegevens ('StructureMeasured')
+
+Als er gegevens ontbreken zijn het meestal de structuurgegevens en dan voornamelijk bij habitat 6510. Er is slechts één op te meten structuurvariabele bij 6510: bedekking van bomen en struiken. Kunnen we er van uit gaan dat de bedekking van bomen en struiken gelijk is aan 0, als de gegevens ontbreken? 
+
+```{r missingData, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+plotMeasure$VegspeciesMeasured <- ifelse(is.na(plotMeasure$VegspeciesMeasured),"Missing data",                                    ifelse(plotMeasure$VegspeciesMeasured, "OK", "Missing value"))
+
+plotMeasure$VeglayerMeasured <- ifelse(is.na(plotMeasure$VeglayerMeasured),"Missing data",                                    ifelse(plotMeasure$VeglayerMeasured, "OK", "Missing value"))
+
+plotMeasure$StructureMeasured <- ifelse(is.na(plotMeasure$StructureMeasured),"Missing record",                                    ifelse(plotMeasure$StructureMeasured, "OK", "Missing value"))
+
+
+missingData <- filter(plotMeasure, !(VegspeciesMeasured == "OK" & VeglayerMeasured == "OK" & StructureMeasured == "OK"))
+
+missingData <- select(missingData, -Weight)
+
+pandoc.table(missingData, caption = "\\label{tab:missingData} Plots met ontbrekende gegevens")
+
+```
+
+\autoref{tab:wrongHabcode} geeft een overzicht van de plots waarvoor het geobserveerde habitat niet volledig werd gespecificeerd. We gaan er vanuit dat het habitat overeenkomt met het doelhabitat. Maar wat als er twee doelhabitats zijn?
+
+```{r wrongHabcode, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+heide6510_habsubt <- c("4010", "4030", "2310", "6510_hu", "2330_bu",  "6510_hua", "6510_hus", "6510_huk")
+
+wrongHabCode <- filter(habMatch_measured_unique, ! HabObserved %in% heide6510_habsubt)
+wrongHabCode <- select(wrongHabCode, IDPlots, HabObserved, HabTarget1, HabTarget2)
+
+pandoc.table(wrongHabCode, caption = "\\label{tab:wrongHabcode}Plots waarvoor habitat(sub)type niet werd gespecifieerd")
+
+habMatch_measured_unique$HabObserved <- ifelse(! habMatch_measured_unique$HabObserved %in% heide6510_habsubt, as.character(habMatch_measured_unique$HabTarget1), habMatch_measured_unique$HabObserved)
+
+habMatch_measured$HabObserved <- ifelse(! habMatch_measured$HabObserved %in% heide6510_habsubt, as.character(habMatch_measured$HabTarget1), habMatch_measured$HabObserved)
+
+```
+
+\autoref{tab:dataMissingInDb2016} geeft een aantal opgemeten plots die in de vorige versie van de databank zitten, maar ontbreken in de versie van 2016.
+
+```{r dataMissingInDb2016, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+missingPlots <- filter(habCompareDb, is.na(HabObserved) )
+missingPlots <- select(missingPlots, IDPlots, HabObserved_2014_2015)
+
+pandoc.table(missingPlots, caption = "\\label{tab:dataMissingInDb2016}Opgemeten plots die in de databank van 2015 zitten maar niet in de databank van 2016")
+```
+
+\autoref{tab:dataMissingInDb2016} zijn de plots waarvan aangeduid is dat ze zijn opgemeten maar die ontbreken in de FieldMapDatabank.
+
+```{r dataMissing, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+missingPlots2 <- habMatch_measured_unique[ !(habMatch_measured_unique$IDPlots %in% voortgang[voortgang$Status == "Opname uitgevoerd", "IDPlots"]),] 
+
+missingPlots3 <- voortgang[voortgang$Status == "Opname uitgevoerd" & !(voortgang$IDPlots %in% habMatch_measured_unique$IDPlots),]
+
+pandoc.table(missingPlots3, caption = "\\label{tab:dataMissingInDb20162}Plots die als opgemeten staan aangeduid in het overzicht, maar ontbreken in de Fieldmapdatabank")
+```
+
+
+# Overzicht opgemeten meetpunten
+
+\autoref{tab:MeasuredHab} geeft een overzicht van de opgemeten punten per geobserveerd habitat(sub)type met onderscheid tussen binnen en buiten SBZH. De tabel geeft ook het gewenst aantal punten na 3 jaar (1/4de van de totale meetcyclus) en na 6 jaar.
+
+```{r dataVerkenning2, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+
+overzicht_Target <- summarise(group_by(habMatch_visited, HabTarget1, SBZH),
+                        n_Visited = n(),
+                        n_Measured = sum(Status == "Opname uitgevoerd"),
+                        n_Measured_Target =  sum(HabTarget1 == HabObserved))
+
+overzicht_Observed <-  summarise(group_by(habMatch_measured_unique, HabObserved, SBZH),
+                       n_Measured_Total = n())
+                       #n_Measured_Target =  sum(HabTarget1 == HabObserved | HabTarget2 == HabObserved))
+
+overzicht_trefkans <- full_join(rename(overzicht_Target, Hab = HabTarget1), rename(overzicht_Observed, Hab = HabObserved), by = c("Hab", "SBZH")) 
+
+overzicht_trefkans <- select(overzicht_trefkans, -n_Measured)
+
+overzicht_trefkans$n_Measured_Total <- ifelse(is.na(overzicht_trefkans$n_Measured_Total), 0, overzicht_trefkans$n_Measured_Total)
+overzicht_trefkans$Trefkans_Target <- overzicht_trefkans$n_Measured_Target/ overzicht_trefkans$n_Visited
+overzicht_trefkans$Trefkans_Total <- overzicht_trefkans$n_Measured_Total/overzicht_trefkans$n_Visited
+
+
+overzicht_Observed_Year <-  summarise(group_by(habMatch_measured_unique, HabObserved, SBZH, YearMeasured),
+                       n_Measured_Total = n())
+                       #n_Measured_Target =  sum(HabTarget1 == HabObserved | HabTarget2 == HabObserved))
+
+
+overzicht_Observed_wide <- spread(overzicht_Observed_Year, key = YearMeasured, value = n_Measured_Total, fill = 0)
+overzicht_Observed_wide$SBZH <- ifelse(overzicht_Observed_wide$SBZH == 1, "Binnen", "Buiten")
+overzicht_Observed_wide$TotalMeasured <- overzicht_Observed_wide$`2014` + overzicht_Observed_wide$`2015` + overzicht_Observed_wide$`2016`
+
+sampleSizeHeide6510 <- getSampleSize(habtypes = heide6510)
+sampleSizeHeide6510$nGewenst_3y <- floor(sampleSizeHeide6510$nGewenst / 4)
+sampleSizeHeide6510$nGewenst_6y <- floor(sampleSizeHeide6510$nGewenst / 2)
+
+overzicht_Observed_wide2 <- full_join(overzicht_Observed_wide, select(sampleSizeHeide6510, HabObserved = habsubt, SBZH, nGewenst_3y, nGewenst_6y), by =c("HabObserved","SBZH"))
+
+overzicht_Observed_wide2[is.na(overzicht_Observed_wide2)] <- 0
+overzicht_Observed_wide2 <- arrange(overzicht_Observed_wide2, HabObserved, SBZH)
+# sum(overzicht_Observed_wide2$TotalMeasured)
+# sum(overzicht_Observed_wide2$nGewenst_3y)
+
+pandoc.table(overzicht_Observed_wide2, caption = "\\label{tab:MeasuredHab}Overzicht opgemeten punten en gewenst aantal opnames na 3 en 6 jaar")
+
+
+```
+
+# Overzicht trefkans
+
+\autoref{tab:trefkans} geeft een overzicht van de geobserveerde trefkans per habitat(sub)type. Trefkans_Target geeft de kans aan dat het doelhabitat wordt aangetroffen. Maar in sommige gevallen kan er ook een opname gebeuren als er een ander habitat dan het doelhabitat worden aangetroffen. Trefkans_Totaal geeft de verhouding tussen het totaal aantal opgemeten punten van een habitat(sub)type en het totaal aantal bezochte punten uit de steekproef voor dit habitat(sub)type.
+
+```{r trefkans, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+
+overzicht_trefkans$Trefkans_Target <- round(overzicht_trefkans$Trefkans_Target,2)
+overzicht_trefkans$Trefkans_Total <- round(overzicht_trefkans$Trefkans_Total,2)
+
+pandoc.table(select(overzicht_trefkans, `Habitat(sub)type` = Hab, SBZH, Trefkans_Doel = Trefkans_Target, Trefkans_Totaal = Trefkans_Total  ), caption = "\\label{tab:trefkans} Overzicht trefkans")
+
+
+
+```
+
+
+```{r dataVerkenning3, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+#kable(addmargins(table(as.character(habMatch_measured$HabTarget1),as.character(habMatch_measured$HabObserved),dnn = c("a","b"))))
+
+```
+
+
+# Planning 2017-2019
+
+
+```{r steekproefHeide, results = 'hide', echo=FALSE, message=FALSE, warning = FALSE}
+
+nbPlotsToDo <- select(ungroup(overzicht_Observed), Hab = HabObserved, SBZH, n_Measured_Total)
+
+sampleSizeHeide6510$SBZH <- ifelse(sampleSizeHeide6510$SBZH == "Binnen", 1, 0)
+
+nbPlotsToDo <- full_join(nbPlotsToDo, select(sampleSizeHeide6510, Hab = habsubt, SBZH, nGewenst_6y, Trefkans_verwacht), by = c("Hab", "SBZH"))
+
+nbPlotsToDo <- full_join(nbPlotsToDo, select(ungroup(overzicht_trefkans), Hab, SBZH, Trefkans_observed = Trefkans_Total), by = c("Hab", "SBZH"))
+
+nbPlotsToDo[is.na(nbPlotsToDo)] <- 0
+
+nbPlotsToDo$nOpnamesToDo_6y <- nbPlotsToDo$nGewenst_6y - nbPlotsToDo$n_Measured_Total
+
+# voor heide gebruiken we geobserveerde trefkans als het aantal opgemeten punten groter is dan 5, anders gebruiken we de verwachte trefkans
+#voor 6510 gebruiken we de verwachte trefkans (nieuw protocol moet trefkans doen verhogen) en stellen we een minimum trefkans van 0.6 in
+
+nbPlotsToDo$Trefkans <- ifelse(substr(nbPlotsToDo$Hab,1,4) == "6510", pmax(nbPlotsToDo$Trefkans_verwacht, 0.6), ifelse(nbPlotsToDo$Trefkans_observed >0  & nbPlotsToDo$n_Measured_Total >= 5, nbPlotsToDo$Trefkans_observed, nbPlotsToDo$Trefkans_verwacht )) 
+
+nbPlotsToDo$nBezoekenToDo_6y <- ceiling(nbPlotsToDo$nOpnamesToDo_6y/nbPlotsToDo$Trefkans)
+
+# steekproef voor eerste drie jaar 
+
+sampleHeide_3y <- getSample(fileSample = "meetnet_heide_versie20140611_orthocontrole")
+sampleHeide_3y_OK <- filter(sampleHeide_3y, Orthocontr == 1)
+sampleHeideExtra <- getSample(dirSampleHab = "../Terrestrische habitats/Steekproef/Heide/.", fileSample = "steekproef_heide_extraBezoeken2016_versie20160511")
+sampleHeide_bezoeken3y <- rbind(sampleHeide_3y_OK, sampleHeideExtra)
+
+
+heide_planned <- left_join(sampleHeide_bezoeken3y, voortgang, by = "IDPlots")
+heide_planned_ov <- summarise(group_by(heide_planned, HabTarget1, SBZH ),
+                           n_planned = sum(Visited == "planning 2017"),
+                            max_nb = max(nb))
+
+heide_planned_ov <- rename(heide_planned_ov, Hab = HabTarget1)
+heide_planned_ov <- left_join(heide_planned_ov, select(nbPlotsToDo, Hab, SBZH, nOpnamesToDo_6y, Trefkans, nBezoekenToDo_6y), by = c("Hab", "SBZH"))
+
+heide_planned_ov$nToSelect <- heide_planned_ov$nBezoekenToDo_6y - heide_planned_ov$n_planned
+
+heide_planning_tabel <- select(heide_planned_ov, `Habitat(sub)type` = Hab, SBZH, nOpnameToDo = nOpnamesToDo_6y, Trefkans, nBezoekToDo = nBezoekenToDo_6y, nBezoekGepland = n_planned, nBezoekExtra = nToSelect)
+```
+
+##Heide
+
+\autoref {tab:planningHeide} geeft aan hoeveel punten er nog bezocht moeten worden ('nBezoekenToDo') om het gewenste aantal opnames te bekomen ('nOpnameToDo'). We gaan daarbij uit van de geobserveerde trefkans, tenzij het aantal opgemeten meetpunten kleiner is dan 5. Als dat het geval is, gebruiken we de verwachte trefkans. We kijken verder nog hoeveel bezoeken er nog gepland zijn en hoeveel bezoeken er dan nog extra moeten gebeuren in de periode 2017-2019. 
+
+```{r steekproefHeideTabel, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+kable(heide_planning_tabel, caption = "\\label{tab:planningHeide} Aantal opnames en aantal bezoeken om het gewenste aantal opgmeten meetpunten te bekomen na 6 jaar")
+
+```
+
+
+```{r steekproefHeideShape, results = 'hide', echo=FALSE, message=FALSE, warning = FALSE}
+heide_shapefile <- readOGR("Data/Steekproef/.", "meetnet_heide_versie201400611")
+
+heide_shapefile_df <- heide_shapefile@data
+
+heide_shapefile_df <- filter(heide_shapefile_df, Orthocontr == 1, !Ranking %in% heide_planned$IDPlots)
+
+heide_extra_ov <- summarise(group_by(heide_shapefile_df, habsubt, SBZH ),
+                            n =n())
+
+heide_planned_ov <- full_join(heide_planned_ov, select(heide_extra_ov, Hab = habsubt, SBZH, nBeschikbaar = n))
+heide_planned_ov[is.na(heide_planned_ov)] <- 0
+
+heide_planned_ov$nToSelectAv <- pmin(heide_planned_ov$nToSelect, heide_planned_ov$nBeschikbaar)
+
+heide_shapefile_df <- left_join(heide_shapefile_df, select(heide_planned_ov, habsubt = Hab, SBZH, nToSelectAv), by = c("habsubt", "SBZH"))
+
+heide_shapefile_df <- mutate(group_by(heide_shapefile_df, habsubt, SBZH),
+                             nb_stratum = rank(Ranking))
+
+heide_shapefile_df$Select <- heide_shapefile_df$nb_stratum <= heide_shapefile_df$nToSelectAv
+
+heide_select_df <- filter(heide_shapefile_df, Select)
+
+nbPunten <- length(unique(heide_select_df$Ranking))
+
+heide_select_shapefile <- heide_shapefile[heide_shapefile$ID %in% heide_select_df$ID,]
+
+test <- heide_select_shapefile@data
+
+#writeOGR(heide_select_shapefile, "Output/.", "meetnet_heide_versie20140611_SelectieJaar4_5_6", driver = "ESRI Shapefile")
+
+heide_planned_ov$nTekort <- ifelse((heide_planned_ov$nBeschikbaar - heide_planned_ov$nToSelect) <0, heide_planned_ov$nToSelect - heide_planned_ov$nBeschikbaar, 0 )
+
+```
+
+De shapefile 'meetnet_heide_versie20140611_SelectieJaar4_5_6.shp' bevat de extra te bezoeken punten voor de periode 2017 - 2019. 
+
+Voor een aantal strata zijn er onvoldoende punten in de (totale) steekproef om de nodige te bezoeken punten te kunnen selecteren (\autoref{tab:Tekort}). Hiervoor moeten nog extra punten getrokken worden via een steekproef.
+
+```{r steekproefHeide2, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+
+pandoc.table(filter(select(heide_planned_ov, Hab, SBZH, nToSelect, nBeschikbaar, nTekort ), nTekort > 0), caption = "\\label{tab:Tekort} Strata waarvoor er onvoldoende meetpunten in de (totale) steekproef")
+
+```
+
+## Habitat 6510
+
+```{r steekproef6510, results = 'hide', echo=FALSE, message=FALSE, warning = FALSE}
+
+
+# steekproef voor eerste drie jaar 
+
+hab6510_planned_ov <- summarise(group_by(habMatch_planned, HabTarget1, SBZH),
+                                n_planned = sum(Status == "Opname to do"))
+
+hab6510_planned_ov <- rename(hab6510_planned_ov, Hab = HabTarget1)
+hab6510_planned_ov <- filter(hab6510_planned_ov, substr(Hab,1,4) == "6510")
+
+hab6510_planned_ov <- left_join(hab6510_planned_ov, select(nbPlotsToDo, Hab, SBZH, nOpnamesToDo_6y, Trefkans, nBezoekenToDo_6y), by = c("Hab", "SBZH"))
+
+hab6510_planned_ov$nToSelect <- hab6510_planned_ov$nBezoekenToDo_6y - hab6510_planned_ov$n_planned
+
+hab6510_planning_tabel <- select(hab6510_planned_ov, `Habitat(sub)type` = Hab, SBZH, nOpnameToDo = nOpnamesToDo_6y, Trefkans, nBezoekToDo = nBezoekenToDo_6y, nBezoekGepland = n_planned, nBezoekExtra = nToSelect)
+```
+
+\autoref {tab:planningHab6510} geeft aan hoeveel punten er nog bezocht moeten worden ('nBezoekenToDo') om het gewenste aantal opnames te bekomen ('nOpnameToDo'). We gaan daarbij uit van de verwachte trefkans (en dus niet de lagere geobserveerde trefkans). We gaan er ook van uit dat de trefkans minsten 0,6 bedraagt. We doen dit omdat het veldprotocol werd aangepast om de trefkans te verhogen. We kijken verder nog hoeveel bezoeken er nog gepland zijn en hoeveel bezoeken er dan nog extra moeten gebeuren in de periode 2017-2019. 
+
+```{r steekproef6510Tabel, results = 'asis', echo=FALSE, message=FALSE, warning = FALSE}
+kable(hab6510_planning_tabel, caption = "\\label{tab:planningHab6510} Aantal opnames en aantal bezoeken om het gewenste aantal opgmeten meetpunten te bekomen na 6 jaar")
+
+```
+
+```{r steekproef6510Shape, results = 'hide', echo=FALSE, message=FALSE, warning = FALSE}
+hab6510_shapefile <- readOGR("Data/Steekproef/.", "steekproef_6510_versie20140506")
+
+hab6510_shapefile_df <- hab6510_shapefile@data
+
+hab6510_shapefile_df <- filter(hab6510_shapefile_df,!Ranking %in% habMatch_planned$IDPlots)
+
+hab6510_extra_ov <- summarise(group_by(hab6510_shapefile_df, habsubt, SBZH ),
+                            n =n())
+
+hab6510_planned_ov <- full_join(hab6510_planned_ov, select(hab6510_extra_ov, Hab = habsubt, SBZH, nBeschikbaar = n))
+hab6510_planned_ov[is.na(hab6510_planned_ov)] <- 0
+
+hab6510_planned_ov$nToSelectAv <- pmin(hab6510_planned_ov$nToSelect, hab6510_planned_ov$nBeschikbaar)
+
+hab6510_shapefile_df <- left_join(hab6510_shapefile_df, select(hab6510_planned_ov, habsubt = Hab, SBZH, nToSelectAv), by = c("habsubt", "SBZH"))
+
+hab6510_shapefile_df <- mutate(group_by(hab6510_shapefile_df, habsubt, SBZH),
+                             nb_stratum = rank(Ranking))
+
+hab6510_shapefile_df$Select <- hab6510_shapefile_df$nb_stratum <= hab6510_shapefile_df$nToSelectAv
+
+hab6510_select_df <- filter(hab6510_shapefile_df, Select)
+
+nbPunten <- length(unique(hab6510_select_df$Ranking))
+
+hab6510_select_shapefile <- hab6510_shapefile[hab6510_shapefile$ID %in% hab6510_select_df$ID,]
+
+test <- hab6510_select_shapefile@data
+
+#writeOGR(hab6510_select_shapefile, "Output/.", "meetnet_hab6510_versie20140506_SelectieJaar4_5_6", driver = "ESRI Shapefile")
+
+hab6510_planned_ov$nTekort <- ifelse((hab6510_planned_ov$nBeschikbaar - hab6510_planned_ov$nToSelect) <0, hab6510_planned_ov$nToSelect - hab6510_planned_ov$nBeschikbaar, 0 )
+
+```
+
+De shapefile 'meetnet_hab6510_versie20140611_SelectieJaar4_5_6.shp' bevat de extra te bezoeken punten voor de periode 2017 - 2019. 
+
+```{r Nazien, results = 'hide', echo=FALSE, message=FALSE, warning = FALSE}
+
+# overzicht_3y <- summarise(group_by(sampleHeide_bezoeken3y, HabTarget1, SBZH),
+#                           n_doorgegeven = n(),
+#                           max_nb = max(nb),
+#                           max_yearPlanned = max(Year))
+# 
+# measuredPlots <- select(habMatch_measured_unique, IDPlots , SBZH, x, y, JaarOpn = YearMeasured, HabObs = HabObserved, HabTarget1)
+# 
+# measuredPlots$ID <- factor(paste(measuredPlots$IDPlots, measuredPlots$HabTarget1, sep = "_"))
+# 
+# 
+# #measuredPlots_Shape <- SpatialPointsDataFrame(coords=cbind(measuredPlots$x, measuredPlots$y),data = select(measuredPlots, HabObs))
+# 
+# 
+# 
+# 
+# meetnetHeide <- readOGR("Data/Steekproef/.", "meetnet_heide_versie201400611")
+# meetnet6510 <- readOGR("Data/Steekproef/.", "steekproef_6510_versie20140506")
+# 
+# 
+# 
+# meetnetHeide <- meetnetHeide[, "ID"]
+# meetnet6510 <- meetnet6510[,"ID"]
+# 
+# meetnetHeide6510 <- rbind.SpatialPointsDataFrame(meetnetHeide, meetnet6510)
+# 
+# meetnetHeide6510 <- merge(meetnetHeide6510, measuredPlots, by = "ID", all.x = TRUE)
+# 
+# meetnetHeide6510 <- meetnetHeide6510[!is.na(meetnetHeide6510$JaarOpn), ]
+# 
+# test <- meetnetHeide6510@data
+# 
+# 
+# writeOGR(meetnetHeide6510, dsn = "Output/.", layer =  "Habitatkwaliteitsmeetnet_heide6510_versie2017-04-12", driver = "ESRI Shapefile")
+# 
+# 
+# sample_heide_shape <- readOGR("../Terrestrische habitats/Steekproef/Heide/.", "steekproef_heide_extraBezoeken2016_versie20160511")
+# 
+# test <- sample_heide_shape@data
+# 
+# writeOGR(sample_heide_shape, dsn = "Output/.", layer = "test", driver = "ESRI Shapefile")
+
+```
+
+
