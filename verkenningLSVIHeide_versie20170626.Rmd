@@ -835,9 +835,20 @@ stats_indicatoren_p0.10 %>%
 Opvallend is de slechte scores voor de indicator 'sleutelsoorten'. Dit kan verklaard worden doordat drempelwaarden uit de LSVI-tabellen bedoeld zijn op schaal van een vegetatievlek, terwijl in het meetnet enkel binnen een 3m x 3m-plot gekeken wordt. Een aangepaste beoordeling is hier aangewezen. Een optie is om de drempelwaarde (op lokaal niveau) aan te passen. Anderzijds zou er ook dremeplwaarde op Vlaamse schaal bepaald kunnen worden waaraan het gemiddeld aantal sleutelsoorten voor een habitattype aan kan afgetoetst worden.
 
 
-We wijzen ook op een aantal indicatoren waarvoor de gemiddelde waarde voor Vlaanderen significant lager (of hoger) is dan de drempelwaarde, maar waarvoor een groot deel van de meetpunten toch ongunstig scoort en bijgevolg de beoordeling op Vlaams niveau ongunstig is. Dit is bijvoorbeeld het geval voor 'horizontale structuur' voor 2310 (LSVI-versie3). De gemiddelde bedekking van 'open vegetatie en kaal zand' bedraagt 21% (met 95%- betrouwbaarheidsinterval tussen 11,6% en 30,4%) en ligt dus een eind boven de drempelwaarde van 10 %. Toch scoort 67% van de meetpunten (lokaal) ongunstig. Er zijn dus heel wat plots met zeer lage bedekkingen en enkele plots met een zeer hoge bedekking (\autoref{fig:fig2310}). De schaal waarop de beoordeling gebeurt speelt hier dus een heel bepalende rol. Als de oppervlakte van de te beoordelen locatie toeneemt, zal een groter aandeel van de locaties gunstig scoren. Wij zien gelijkaardige zaken bij de indicatoren 'horizontale structuur' bij 2330_bu (LSVI-versie3), 'vergrassing' bij 2330_bu, 4010 en 4030 (LSVI-versie3), 'korstmosvegetaties' bij 2330_bu (LSVI-versie2) en 'moslaag' bij 2310 (LSVI-versie2). 
+We wijzen ook op een aantal indicatoren waarvoor de gemiddelde waarde voor Vlaanderen significant lager (of hoger) is dan de drempelwaarde, maar waarvoor een groot deel van de meetpunten toch ongunstig scoort en bijgevolg de beoordeling op Vlaams niveau ongunstig is. Dit is bijvoorbeeld het geval voor 'horizontale structuur' voor 2310 (LSVI-versie3). De gemiddelde bedekking van 'open vegetatie en kaal zand' bedraagt 21% (met 95%- betrouwbaarheidsinterval tussen 11,6% en 30,4%) en ligt dus een eind boven de drempelwaarde van 10 %. Toch scoort 67% van de meetpunten (lokaal) ongunstig. Er zijn dus heel wat plots met zeer lage bedekkingen en enkele plots met een zeer hoge bedekking (\autoref{fig:fig2310}). De schaal waarop de beoordeling gebeurt speelt hier dus een heel bepalende rol. Als de oppervlakte van de te beoordelen locatie toeneemt, zal een groter aandeel van de locaties gunstig scoren. We zien gelijkaardige zaken bij de indicatoren 'horizontale structuur' bij 2330_bu (LSVI-versie3), 'vergrassing' bij 2330_bu, 4010 en 4030 (LSVI-versie3), 'korstmosvegetaties' bij 2330_bu (LSVI-versie2) en 'moslaag' bij 2310 (LSVI-versie2). 
 
 # Vergelijking resultaten met HR-rapportage 2013
+
+De meest recente rapportage over de staat van instandhouding van de habitattypen in kader van de Habitatrichtlijn dateert van 2013 (Louette et aL., 2013). Deze rapportage geldt voor de periode 2007-2012 en de beoordeling van het criterium Structuur & functies is gebaseerd op de LSVI-indicatoren (versie 2), de typische soorten en de ruimtelijke configuratie. Voor elke LSVI-indicator werd het aandeel van het oppervlakte binnen de speciale beschermingszone (SBZ-H) in een ongunstige (lokale) toestand ingeschat. Deze inschatting is hoofdzakelijk gebeurd op basis van expertkennis. Daarnaast maakte de habitatexpert ook een inschatting van het belang van elke indicator (matig belang of hoog belang). De beoordeling van structuur & functies per habitat(sub)type gebeurde als volgt:
+
+* Zeer ongunstig (U2): > 50% van de indicatoren scoren ongunstig
+
+* Matig ongunstig (U1): <= 50% van indicatoren scoren ongunstig en >= 1 indicator van hoog belang scoort ongunstig
+
+* Gunstig (FV): <= 50% van indicatoren scoren ongunstig en geen enkele indicator van hoog belang scoort ongunstig
+
+
+
 
 
 ```{r HR-rapportage, warning = FALSE, message = FALSE}
@@ -850,6 +861,13 @@ rapportage2013 <- rapportage2013 %>%
 rapportage2013$AandeelOngunstig <- rapportage2013$AandeelOngunstig/100
 rapportage2013$Bron <- "Rapportage2013"
 rapportage2013$Criterium <- tolower(rapportage2013$Criterium)
+
+rapportage2013_overzicht <- rapportage2013 %>%
+  group_by(HabCode) %>%
+  summarise(AandeelOngunstig = round(sum(Uitspraak == "Unfavourable", na.rm = TRUE)/n(),2),
+            AantalHoogOngunstig = sum(Uitspraak == "Unfavourable" & Belang =="H", na.rm = TRUE),
+            Beoordeling = unique(BeoordelingTotaal)) 
+
 
 vergelijking <- stats_indicatoren %>%
   filter(VersieLSVI == "versie2") %>%
@@ -869,12 +887,26 @@ vergelijking <- rbind.fill(select(rapportage2013, HabCode, Criterium, Indicator,
 vergelijking$IndicatorTekst <- factor(vergelijking$Indicator)
 levels(vergelijking$IndicatorTekst) <- gsub(" ", "\n", levels(vergelijking$IndicatorTekst))
 
-unique(vergelijking$Criterium)
+#unique(vergelijking$Criterium)
 
 ```
 
+\autoref{rapportage2013} toont de beoordeling van Structuur & Functies in de rapportage van 2013 voor de heidehabitat(sub)typen.
 
-```{r ver, fig.cap= "\\label{fig:indicatoren2_LSVI2} Geschatte aandeel van habitat(sub)type dat ongunstig scoort voor de verschillende indicatoren van LSVI-versie2, de bijhoreden betrouwbaarheidsintervallen en de beoordeling op Vlaamse schaal bij significantieniveau van 0.05"}
+```{r HR-rapportage_tabel, results='asis'}
+
+rapportage2013_overzicht %>%
+  rename("Habitat(sub)type" = HabCode, "Aandeel indicatoren ongunstig " = AandeelOngunstig, "Aantal indicatoren met hoog belang ongunstig" = AantalHoogOngunstig, "Beoordeling Structuur & Functies" = Beoordeling) %>%
+pandoc.table(split.cells = 18, caption = "\\label{rapportage2013} Beoordeling van Structuur & Functies in de rapportage van 2013")
+
+```
+
+In \autoref{fig:vergelijking_beoordeling} vergelijken we per indicator en per habitat(sub)type het ingeschatte oppervlakte-aandeel ongunstig volgens de rapportage van 2013 met het geschatte oppervlakte-aandeel ongunstig op basis van het meetnet habitatkwaliteit. Gezien de reeds opgemeten meetpunten van het meetnet habitatkwaliteit voor de heidehabitats hoofdzakelijk binnen SBZ-H liggen, gelden beide schattingen dus voor habitat binnen SBZ-H. 
+
+We zien dat de inschatting van het oppervlakte-aandeel ongunstig voor veel indicatoren sterk verschillend is. Deze verschillen zijn waarschijnlijk vooral te wijten aan de verschillen in methodiek en minder aan eigenlijke veranderingen in habitatkwaliteit op het terrein. We zien dat het oppervlakte-aandeel ongunstig in de rapportage van 2013 vaak veel lager ligt dan we op basis van het meetnet habitatkwaliteit zouden concluderen. Dit zorgt er voor dat heel wat indicatoren Favourable zijn in de 2013-rapportage maar Unfavourable op basis van het meetnet (\autoref{tab:verRapportage}). Anderzijds zijn er ook indicatoren waar het meetnet habitatkwaliteit een lager aandeel ongunstig aangeeft dan de rapportage in 2013. Dit is bijvoorbeeld het geval voor 'invasieve exoten' (2310 en 2330_bu), 'verbossing' bij 2310, 'ouderdomstructuur struikhei' bij 4030 en 'vergrassing' bij 4010.       
+
+
+```{r ver, fig.cap= "\\label{fig:vergelijking_beoordeling} Vergelijking tussen de HR-rapportage van 2013 en de tussentijdse analyse van het meetnet habitatkwaliteit", fig.height=7}
 
 vergelijking %>%
   filter(!is.na(AandeelOngunstig)) %>%
@@ -885,11 +917,32 @@ vergelijking %>%
   labs(x = "Indicator" ,colour = "Beoordeling" , y = "Aandeel ongunstig") + 
   scale_colour_manual(values = c(inbo.groen, inbo.rood,inbo.grijs)) + 
   geom_hline(aes(yintercept = 0.25), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
-  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
+  theme( legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
   coord_flip() +
-  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1))
+  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1)) +
+  guides(colour = guide_legend(nrow = 3, ncol = 1, title.position = "top"), shape = guide_legend(nrow = 2, ncol = 1, title.position = "top"))
 
 ```
+
+```{r ver2, results='asis'} 
+vergelijking %>%
+  select(HabCode,Indicator, Uitspraak, Bron) %>%
+  spread(key = "Bron", value = "Uitspraak") %>%
+  filter(!is.na(`Meetnet habitatkwaliteit`)) %>%
+  group_by(HabCode, Rapportage2013) %>%
+  summarise(`Meetnet favourable` = sum(`Meetnet habitatkwaliteit` == "Favourable"),
+            `Meetnet unknown` = sum(`Meetnet habitatkwaliteit` == "Unknown"),
+            `Meetnet unfavourable` = sum(`Meetnet habitatkwaliteit` == "Unfavourable")) %>%
+  pandoc.table(caption = "\\label{tab:verRapportage} Vergelijking beoordeling indicatoren", split.cell = 15)
+
+
+```
+
+\FloatBarrier
+
+
+
+
 
 # Bijlage 1 Overzicht analysevariabelen van de meetpunten
 
