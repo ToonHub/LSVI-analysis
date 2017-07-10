@@ -1,0 +1,1063 @@
+---
+title: 'Meetnet habitatkwaliteit: verkenning resultaten heidehabitats'
+author: "Toon Westra"
+date: "27 september 2016"
+output: 
+  INBOmd::inbo_rapport_2015:
+    lof: FALSE
+    lot: FALSE
+---
+
+
+```{r results ='hide', echo = FALSE, message = FALSE, cache = FALSE, purl = FALSE, warning=FALSE}
+
+library(knitr)
+opts_chunk$set(
+  echo = FALSE, 
+  results = 'markup',
+  eval = TRUE,
+  cache = FALSE,
+  autodep = TRUE,
+  dev = "pdf",
+  dpi = 300,
+  fig.width = 150 / 25.4,
+  fig.height = 100 / 25.4,
+  warning = FALSE,
+  error = TRUE,
+  message = FALSE
+)
+
+library(pander) # best eerst knitr en daarna pas pander laden
+
+
+#theme_set(theme_bw(base_size = 9))
+
+
+
+```
+
+
+
+# Inleiding
+
+In dit document verkennen we de LSVI-indicatoren afgeleid uit de gegevens van het meetnet habitatkwaliteit. 
+
+# Verkenning meetvariabelen
+
+```{r Rinit,  warning = FALSE, message = FALSE, results = 'hide'}
+
+source("scripts/Omgevingsvariabelen_versie2016-10-12.R")
+source("scripts/LSVI/LSVI_functies.R") 
+
+library(tidyr)
+library(dplyr)
+library(tibble)
+library(stringr)
+
+```
+
+De heide meetpunten worden door ANB opgemeten en zij maken gebruik van FieldMap voor het invoeren van de gegevens. De gegevens moeten dus uit de FieldMap databank gehaald worden. Volgende gegevens worden opgehaald:
+
+* de opgemeten plots en het geobserveerde habitattype,
+* de bedekkingen van de vegetatielagen,
+* de bedekkingen van de plantensoorten uit de vegetatieopname (3m x 3m plot),
+* de gegevens opgemeten in de structuurplot (cirkelplot met een straal van 18m),
+* metadata: datum gegevensinzameling, coördinaten van plot en ligging t.o.v. SBZH. 
+
+## Geobserveerde habitattypen
+
+### Welke gegevens worden opgemeten?
+
+Binnen de cirkelplot (straal 18 meter) worden de aanwezige habitattypen en/of andere landbekkingsklassen gekarteerd. Wanneer het geobserveerde habitattype in het centrum van de cirkelplot in doelhabitat is gelegen, wordt er een vegetatieopname uitgevoerd en de structuurvariabelen opgemeten. Ook wanneer de het centrum van de cirkelplot in een ander heidehabitat gelegen is, wordt in sommige gevallen  het meetpunt opgemeten. Het veldprotocol geeft aan wanneer dit al dan niet kan.
+
+De databank bevat per meetpunt de oppervlakte van elk geobserveerde habitattype en/of andere landbekkingsklasse binnen de cirkelplot. Voor de opgemeten punten noteert men ook het habitattype in het centrum van de vegetatieplot.  
+
+Wanneer de cirkelplot meerdere heidehabitats bevat, zullen we het meetpunt toekennen aan het habitattype dat geobserveerd werd (in het centrum) van de vegatieplot. Omdat het meetpunt maar gedeeltelijk uit het doelhabitat bestaat, zullen we een gewicht toekennen aan het meetpunt overeenkomstig het oppervlakteaandeel van het doelhabitat binnen de cirkelplot. Ook indien een meetpunt gedeeltelijk uit niet-habitat bestaat, zullen we op eenzelfde manier gewichten toekennen aan de meetpunten. 
+
+Moet er ook rekening gehouden worden met het aandeel doelhabitat binnen de vegetatieplot (3 meter x 3 meter)? Dit kan momenteel niet rechtstreeks uit de databank gehaald worden, maar zou wel afgeleid kunnen worden uit de kartering binnen de cirkelplots.
+
+
+```{r getDataHabtypes, cache = TRUE, warning = FALSE, message = FALSE, results = 'hide'}
+
+plotHabtypes <- getMeasuredPlotsMHK(db = dbHeideEn6510_2016)
+
+# selectie habitatcodes die met 2 en 4 beginnen = de heide habitats
+plotHabtypesHeide <- plotHabtypes[substring(plotHabtypes$HabCode,1,1) %in% c("2","4"), ]
+
+habTarget <- getHabtarget()
+
+plotHabtypesHeide <- left_join(plotHabtypesHeide, habTarget, by = "IDPlots")
+
+plotHabtypesHeide$HabTarget1 <- as.character(plotHabtypesHeide$HabTarget1)
+plotHabtypesHeide$HabTarget2 <- as.character(plotHabtypesHeide$HabTarget2)
+plotHabtypesHeide$HabCode <- as.character(plotHabtypesHeide$HabCode)
+
+
+```
+
+
+Voor enkele plots wordt enkel de habitatgroep genoteerd ('4: heide- en struikvegetatie') omdat habitattype 4010 en 4030 niet kon onderscheiden worden op terrein. Hier veronderstellen we dat het habitattype overeenkomt met de habitatkaart.
+
+```{r specifySubtype,  cache = TRUE, warning = FALSE, message = FALSE, results = 'hide' }
+
+metadataHeide6510 <- getMetaDataMHK_2016(db = dbHeideEn6510_2016)
+
+plotHabtypesHeide <- left_join(plotHabtypesHeide, metadataHeide6510, by = "IDPlots")
+
+
+# Rangnummer plots per habitattype
+
+plotHabtypesHeide <- mutate(group_by(plotHabtypesHeide,HabCode),
+                            RangNr = 1:n())
+
+plotHabtypesHeide <- ungroup(plotHabtypesHeide)
+
+plotHabtypesHeide$SBZH <- ifelse(plotHabtypesHeide$SBZH == 1, "Binnen SBZH", "Buiten SBZH" )
+```
+
+
+
+### Dataverkenning
+
+\autoref{fig:ObservedHab} geeft het aantal opgemeten meetpunten per habitat(sub)type over de verschillende jaren. De figuur onderscheidt ook de meetpunten die volledig uit doelhabitat bestaan en de plots die gedeeltelijk uit doelhabitat bestaan.
+
+```{r figHabtype,  fig.cap= "\\label{fig:ObservedHab}Aantal plots per habitat(sub)type"}
+
+#ggplot(plotHabtypesHeide,aes(x = HabCode, fill = SBZH)) + geom_bar() + labs(x= "Habitat(sub)type", y = "Aantal plots") + facet_wrap(~ Year)
+
+ggplot(plotHabtypesHeide,aes(x = HabCode, fill = ifelse(Weight < 1, "Gedeeltelijk habitat", "Volledig habitat"))) + geom_bar() + labs(x= "Habitat(sub)type", y = "Aantal plots") + facet_wrap(~ Year) + labs(fill = "Type plot") + theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+
+\FloatBarrier
+
+\autoref{tab:nMeasured} geeft een overzicht van het huidige aantal opgemeten meetpunten en het totale steekproefgrootte die we na 12 jaar willen berijken.
+
+```{r tabAantallen, message=FALSE, results='asis'}
+
+overzicht_meetpunten <- plotHabtypesHeide %>%
+                        group_by(HabCode, SBZH) %>%
+                        summarise(
+                          nOpgemeten =n()
+                        )  %>%
+                        ungroup()
+
+#steekproefgrootte
+
+steekproefgrootte <- getSampleSize(habtypes = c("2310", "2330_bu", "4010", "4030"))
+
+steekproefgrootte$SBZH <- ifelse(steekproefgrootte$SBZH == "Binnen", 
+                                 "Binnen SBZH", 
+                                 "Buiten SBZH")
+steekproefgrootte$nGewenst <- round(steekproefgrootte$nGewenst,0)
+
+overzicht_steekproefgrootte <- steekproefgrootte %>%
+                              select(habsubt, SBZH, nGewenst)
+
+overzicht <- overzicht_meetpunten %>%
+            full_join(overzicht_steekproefgrootte, by = c("HabCode" = "habsubt", "SBZH")) %>%
+            arrange(HabCode, SBZH)  
+
+overzicht$nOpgemeten <- ifelse(is.na(overzicht$nOpgemeten), 0, overzicht$nOpgemeten )        
+
+pandoc.table(overzicht, caption = "\\label{tab:nMeasured}Aantal opgemeten meetpunten in eerste drie jaar en totaal aantal gewenste meetpunten na meetcyclus van 12 jaar") 
+
+```
+
+
+## Bedekking vegetatielagen en plantensoorten
+
+### Welke gegevens worden opgemeten?
+
+Binnen de vegetatieplot wordt in eerste instantie de bedekking (percentage) van de vegetatielagen geschat: de moslaag, de kruidlaag, de struiklaag, de boomlaag en de boom- en struiklaag.
+
+Vervolgens worden alle aanwezige soorten genoteerd en wordt de bedekking ervan geschat op basis van Londo-schaal.
+
+\pagebreak
+
+In \autoref {tab:Londo} geven we de bedekkingen die gebruikt worden voor elke Londo-klasse. De transformatie naar bedekking (%) is nodig om de gezamelijke bedekking te kunnen berekenen van een groep van soorten (bv. bedekking door sleutelsoorten)
+
+```{r getDataVegOpname, warning = FALSE, message = FALSE , results='asis'}
+coverVeglayersHeide <- getCoverVeglayersMHK(db = dbHeideEn6510_2016)
+
+coverSpecies <- getCoverSpeciesMHK(db = dbHeideEn6510_2016)
+
+#as_tibble(coverSpecies)
+
+cover <- coverSpecies %>%
+        select(ClassName, Cover) %>%
+        unique() %>%
+        arrange(Cover) %>%
+        filter(!is.na(Cover))
+
+pandoc.table(cover, caption = "\\label{tab:Londo} Klassen van de Londo-schaal met bijhorende bedekking")
+
+```
+
+
+
+
+
+### Ontbrekende waarden
+
+```{r ontbrekendeWaardenVegOpname,  warning = FALSE, message = FALSE}
+
+coverSpeciesHeide <- left_join(plotHabtypesHeide, coverSpecies)
+
+plotsZonderSoorten <- coverSpeciesHeide[is.na(coverSpeciesHeide$NameNl),]$IDPlots
+OWSoorten <- length(plotsZonderSoorten) > 0 
+#OWSoorten <- FALSE
+
+plotsBedekkingOntbreekt <- unique(coverSpeciesHeide[is.na(coverSpeciesHeide$Cover),]$IDPlots)
+OWBedekking <- length(plotsBedekkingOntbreekt) > 0
+
+#OWBedekking <- TRUE
+
+```
+
+
+
+`r if (OWSoorten){"Voor volgende plots zitten er geen soortgegevens in de databank: "}`
+
+`r if (OWSoorten){paste(plotsZonderSoorten, collapse = ", ")}`
+
+`r if (!OWSoorten){"Voor alle plots werden er soortgegevens ingegeven in de databank."}`
+
+`r if (OWBedekking){"Voor volgende plots ontbreekt de bedekking voor een of meerdere soorten: "}`
+`r if (OWBedekking){paste(plotsBedekkingOntbreekt, collapse = ", ")}`
+`r if (!OWBedekking){"Voor alle ingevoerde soorten werd de bedekking ingegeven"}`
+
+
+### Dataverkenning
+
+\autoref{figVeg} geeft een overzicht van het aantal getelde soorten per vegetatieplot en per vegetatielaag. 
+
+```{r figuurVegOpname, warning = FALSE, message = FALSE, fig.cap = "\\label{figVeg} Aantal geobserveerde soorten in vegetatieplot"}
+
+aantalSoortenPerPlot <- summarise(group_by(coverSpeciesHeide, IDPlots,RangNr, Vegetatielaag, HabCode),
+                           Count = n())
+
+ggplot(aantalSoortenPerPlot, aes(x = Count,  y= RangNr)) + geom_point() + facet_grid(HabCode ~ Vegetatielaag, scales = "free_y") + labs(x = "Aantal soorten", y = "Plot")
+
+
+```
+
+\autoref{figVeg2} toon de soorten die het vaakst voorkomen per habitat(subt)type en \autoref{figVeg3} geven de soorten met de hoogste gemiddelde bedekking.
+
+```{r figuurVegOpname2, warning = FALSE, message = FALSE}
+aantalWnmPerSoort <- summarise(group_by(coverSpeciesHeide, NameNl,HabCode),
+                           AantalWnm = n(),
+                           SumCover = sum(Cover, na.rm =TRUE))
+
+aantalPlotsPerHab <- summarise(group_by(plotHabtypesHeide, HabCode),
+                           AantalPlots = n())
+
+aantalWnmPerSoort <- inner_join(aantalWnmPerSoort, aantalPlotsPerHab)
+
+aantalWnmPerSoort <- mutate(aantalWnmPerSoort,
+                            Occurence = AantalWnm/AantalPlots * 100,
+                            MeanCover = SumCover/AantalPlots)
+
+# 10 meest voorkomende soorten per hab
+
+top10PerHab <- mutate(group_by(aantalWnmPerSoort, HabCode),
+                         rankingOccurence = rank (desc(Occurence)),
+                      rankingCover = rank (desc(Occurence))
+        )
+
+top10PerHab <- filter(top10PerHab, rankingOccurence <= 10)
+
+top10PerHab <- arrange(top10PerHab, HabCode, desc(Occurence))
+top10PerHab$Volgorde <- 1:nrow(top10PerHab)
+
+```
+
+
+
+```{r figuurVegOpname3, warning = FALSE, message = FALSE, fig.cap = "\\label{figVeg2} Tien meest voorkomende soorten per habitat(sub)type"}    
+
+ggplot(top10PerHab, aes(y = reorder(NameNl, Occurence), x = Occurence)) + geom_point()  + facet_wrap(~ HabCode, scales = "free_y") + xlim(0,100) + labs ( x = "Voorkomen in plots (%)", y = "Soort")
+
+```
+
+
+
+```{r figuurVegOpname4, warning = FALSE, message = FALSE, fig.cap = "\\label{figVeg3} Tien meest bedekkende soorten per habitat(sub)type"}
+ggplot(top10PerHab, aes(y = reorder(NameNl,MeanCover), x =MeanCover)) + geom_point()  + facet_wrap(~ HabCode, scales = "free_y") + xlim(0,max(top10PerHab$MeanCover)) +  labs ( x = "Gemiddelde bedekking (%)", y = "Soort")
+
+```
+
+
+## Gegevens structuurplot
+
+### Welke gegevens worden ingezameld?
+
+In de cirkelplot worden de bedekking opgemeten van variabelen gerelateerd aan habitatstructuur- en verstoringsindicatoren van de verschillende heidehabitats uit de LSVI.
+
+Voor habitatstructuur is dit:
+
+* Dwergstruiken
+* Pionierfase struikhei
+* Ontwikkelingsfase struikhei
+* Climaxfase struikhei
+* Degeneratiefase struikhei
+* Naakte bodem
+* Buntgras
+* Moslaag
+* Korstmoslaag
+* Veenmoslaag
+
+Voor verstoring is dit:
+
+* Verbossing (bedekking boom- een struiklaag)
+* Vergrassingindicatoren
+* Verruigingindicatoren
+* Exoten (Grijs kronkelsteeltje)
+
+
+
+
+```{r getDataStructuurPlot, cache = TRUE, warning = FALSE, message = FALSE }
+
+structuurHeide <- getStructurePlotHeide(db = dbHeideEn6510_2016)
+
+structuurHeide <- rename(structuurHeide, Verbossing = Shrub_and_Treelayer_18m, Veenmoslaag =Sphagnumlayer, Dwergstruiken = LowShrublayer, Verruiging = Brushwood, Vergrassing = Herbs, Struikhei_pionier = Calluna_phase_pioneer, Struikhei_ontwikkeling = Calluna_phase_devel, Struikhei_climax = Calluna_phase_climax, Struikhei_degeneratie = Calluna_phase_degen , Naakte_bodem = Pioneer_phase_open_soil, Buntgras = Pioneer_Coryn_Aira, Moslaag = Pioneer_Mos, Korstmoslaag = Pioneer_Lichenen, GrijsKronkelsteeltje = Campylopus_introflexus )
+
+#as_tibble(structuurHeide)
+
+```
+
+### Ontbrekende waarden
+
+Ontbrekende waarden voor bedekking komen overeen met een bedekking van 0%. Dit moet nog aangepast worden in de datbank.
+
+```{r aanpassenStructuurPlot, warning = FALSE, message = FALSE }
+
+structuurHeide[is.na(structuurHeide)] <- 0
+
+
+
+```
+
+
+```{r ontbrekendeWaardenStructuurPlot, warning = FALSE, message = FALSE }
+
+structuurHeide <- left_join(plotHabtypesHeide, structuurHeide)
+
+
+plotsZonderStructuurdata <- structuurHeide[is.na(structuurHeide$Verbossing),]$IDPlots
+OWStructuurdata <- length(plotsZonderStructuurdata) > 0
+
+
+```
+
+`r if (OWStructuurdata){"Voor volgende plots zitten er geen structuurgegevens in de databank: "}`
+`r if (OWStructuurdata){plotsZonderStructuurdata}`
+`r if (!OWStructuurdata){"Voor alle plots werden er structuurgegevens ingegeven in de databank."}`
+
+### Dataverkenning
+
+Hieronder geven we een overzicht van de opgemeten bedekkingen voor de meetvariabelen m.b.t. de verstoringsindicatoren (\autoref{fig:verstoring}) en de habitatstructuurindicatoren (\autoref{fig:structuur1} en \autoref{fig:structuur2}).
+
+```{r figuurStructuurPlot, warning = FALSE, message = FALSE, fig.cap = "\\label{fig:verstoring}  Meetvaribelen m.b.t. de LSVI-verstoringsindicatoren"}
+
+
+structuurHeideLong <- gather(structuurHeide, StructuurVariabele, Waarde, Verbossing:Korstmoslaag,factor_key = TRUE )
+
+structuurVar <- unique(structuurHeideLong$StructuurVariabele)
+
+ggplot(filter(structuurHeideLong,StructuurVariabele %in% c("Verbossing", "Vergrassing", "Verruiging", "GrijsKronkelsteeltje")) , aes(x = Waarde, y = RangNr)) + geom_point() + facet_grid(HabCode ~ StructuurVariabele, scales ="free_y") + labs(x= "Bedekking (%)", y ="Plot")
+```
+
+
+```{r figuurStructuurPlot2, warning = FALSE, message = FALSE, fig.cap = "\\label{fig:structuur1}  Meetvaribelen m.b.t. de LSVI-habitatstructuurindicatoren"}
+ggplot(filter(structuurHeideLong,StructuurVariabele %in% c("Naakte_bodem", "Korstmoslaag", "Moslaag", "Buntgras")), aes(x = Waarde, y = RangNr)) + geom_point() + facet_grid(HabCode ~ StructuurVariabele, scales ="free_y") + labs(x= "Bedekking (%)", y ="Plot")
+
+```
+
+
+```{r figuurStructuurPlot3, warning = FALSE, message = FALSE, fig.cap = "\\label{fig:structuur2}  Totale bedekking van Struikhei en bedekking van de verschillende fase van Struikhei "}
+structuurHeideLong$StruikheiType <- ifelse(structuurHeideLong$StructuurVariabele == "Dwergstruiken", 
+                                           "Totaal",
+                                           ifelse(structuurHeideLong$StructuurVariabele == "Struikhei_ontwikkeling",
+                                                  "Ontwikkelingsfase",
+                                                  ifelse(structuurHeideLong$StructuurVariabele == "Struikhei_pionier",
+                                                  "Pioniersfase",
+                                                  ifelse(structuurHeideLong$StructuurVariabele == "Struikhei_climax",
+                                                  "Climaxfase",
+                                                  ifelse(structuurHeideLong$StructuurVariabele == "Struikhei_degeneratie",
+                                                  "Degeneratiefase", NA)))))
+                                                  
+                                           
+
+ggplot(filter(structuurHeideLong,!is.na(StruikheiType)), aes(x = Waarde, y = RangNr)) + geom_point() + facet_grid(HabCode ~ StruikheiType, scales ="free_y")
+
+```
+
+# Gegevensanalyse
+
+## Berekening van analysevariabelen
+
+In een volgende stap bepalen we de variabelen die nodig zijn om de LSVI-indicatoren te kunnen beoordelen. We noemen deze variabelen de analysevariabelen. Meestal is er één analysevariabele per LSVI-indicator, maar in sommige gevallen zijn er ook twee analysevariabelen nodig om een LSVI-indicator te kunnen beoordelen. Dit is bijvoorbeeld het geval bij de indicator 'ouderdomstructuur van struikhei' van habitattype 2310 en 4030 die beoordeeld wordt op basis van het aantal frequente ouderdomsstadia van struikhei en het voorkomen van het climax- of degradatiestadium.
+
+In sommige gevallen is de meetvariabele gelijk aan de analysevariabelen (zoals 'Bedekking van boom- en struiklaag' voor de beoordeling van verbossing), maar in andere gevallen moeten de analysevariabelen berekend worden op basis van de meetvariabelen. Voor de heidehabitats gaat het steeds om zeer eenvoudige berekeningen, zoals het bepalen van het aantal sleutelsoorten uit de lijst van alle opgemeten soorten.   
+
+Voor de heidehabitats worden de meeste analysevariabelen afgeleid uit de meetvariabelen opgemeten in de cirkelplot. Enkel het aantal sleutelsoorten bepalen we op basis van de vegetatieopname.
+
+```{r berekeningLSVIVegOpname, cache = TRUE, warning = FALSE, message = FALSE}
+
+indicatorenVegOpname <- calculateLSVI_vegetatieopname(plotHabtypes = select(plotHabtypesHeide, IDPlots, HabCode), bedekkingSoorten = coverSpeciesHeide, bedekkingVeglagen = coverVeglayersHeide)
+
+#length(unique(indicatorenVegOpname$IDPlots))
+
+structuurHeide <- getStructurePlotHeide(db = dbHeideEn6510_2016)
+
+indicatorenStructuurPlot <- calculateLSVI_structuurplotHeide(structurePlot = structuurHeide, plotHabtypes = select(plotHabtypesHeide, IDPlots, HabCode))
+
+
+#indicatorenStructuurPlot$Waarde <- as.numeric(ifelse(indicatorenStructuurPlot$Waarde == "TRUE", 1,
+                                                     # ifelse(indicatorenStructuurPlot$Waarde == "FALSE",0, indicatorenStructuurPlot$Waarde)))
+
+indicatoren <- rbind.fill(indicatorenVegOpname, indicatorenStructuurPlot)
+
+indicatoren <- arrange(indicatoren, HabCode, Criterium, Indicator)
+
+#length(unique(indicatoren$IDPlots))
+
+
+
+indicatoren$BeoordelingTekst <- factor(ifelse(indicatoren$Beoordeling == 0, "Ongunstig", "Gunstig"))
+colors_beoordeling <- c("Ongunstig" = inbo.rood, "Gunstig" = inbo.groen)
+
+indicatoren <- left_join(select(plotHabtypesHeide,IDPlots,HabCode, RangNr, Weight, SBZH), select(indicatoren,-HabCode), by ="IDPlots")
+indicatoren <- filter(indicatoren, !is.na(Waarde))
+
+
+
+```
+
+
+```{r tabelIndicatoren}
+#kable(overzicht_indicatoren, align = "c", row.names = FALSE)
+
+#as_tibble(indicatoren[,c("HabCode","IDPlots","AnalyseVariabele", "Eenheid", "Waarde", "Beoordeling")])
+```
+
+
+
+
+```{r verkenningIndPlots, warning = FALSE, message = FALSE}
+
+indicatoren$Criterium <- factor(indicatoren$Criterium, levels = c("vegetatie", "habitatstructuur", "verstoring"))
+
+indicatoren$Indicator <- gsub("_", " ",indicatoren$Indicator)
+indicatoren$Indicator <- gsub("Of", " of ",indicatoren$Indicator)
+indicatoren$Indicator <- gsub("En", " en ",indicatoren$Indicator)
+
+indicatoren$AnalyseVariabele <- gsub("_", " ",indicatoren$AnalyseVariabele)
+indicatoren$AnalyseVariabele <- gsub("Of", " of ",indicatoren$AnalyseVariabele)
+indicatoren$AnalyseVariabele <- gsub("En", " en ",indicatoren$AnalyseVariabele)
+
+overzicht_indicatoren <- unique(indicatoren[,c("HabCode","Criterium","Indicator", "AnalyseVariabele", "Eenheid", "Drempelwaarde","VersieLSVI")])
+
+overzicht_indicatoren <- rename(overzicht_indicatoren, 'Drempel- waarde' = Drempelwaarde )
+
+overzicht_indicatoren <- arrange(overzicht_indicatoren, Criterium)
+
+# DataIndicatoren <- indicatoren
+# HabCode <- "2310"
+
+plot_indicatoren <- function(DataIndicatoren, HabCode ){
+  
+p1 <- ggplot(DataIndicatoren[DataIndicatoren$HabCode == HabCode & DataIndicatoren$Criterium == "vegetatie",], aes(x = Waarde, y =  RangNr, colour = BeoordelingTekst)) + geom_point() + facet_grid(Criterium ~ AnalyseVariabele, scales = "free_x", labeller = labeller(AnalyseVariabele = label_wrap_gen(10)))+ labs(colour = "Beoordeling", y = "Meetpunt") + scale_colour_manual(values = colors_beoordeling) + theme(legend.position = "Hide", strip.text = element_text(size=8))
+
+p2 <-ggplot(DataIndicatoren[DataIndicatoren$HabCode == HabCode & DataIndicatoren$Criterium == "habitatstructuur",], aes(x = Waarde, y =  RangNr, colour = BeoordelingTekst)) + geom_point() + facet_grid(Criterium ~ AnalyseVariabele, scales = "free_x" , labeller = labeller(AnalyseVariabele = label_wrap_gen(10)))+ labs(colour = "Beoordeling", y = "Meetpunt") + scale_colour_manual(values = colors_beoordeling) + theme(legend.position = "Hide",  strip.text = element_text(size=8))
+
+p3 <- ggplot(DataIndicatoren[DataIndicatoren$HabCode == HabCode & DataIndicatoren$Criterium == "verstoring",], aes(x = Waarde, y =  RangNr, colour = BeoordelingTekst)) + geom_point() + facet_grid(Criterium ~ AnalyseVariabele, scales = "free_x" , labeller = labeller(AnalyseVariabele = label_wrap_gen(10)))+ labs(colour = "Beoordeling", y = "Meetpunt") + scale_colour_manual(values = colors_beoordeling) + theme(legend.position = "bottom",  strip.text = element_text(size=8))
+
+grid.arrange(p1,p2,p3)
+
+}
+
+
+
+
+plot_beoordeling <- function(DataIndicatoren, HabCode ){
+  
+p1 <- ggplot(indicatoren[indicatoren$HabCode == HabCode & indicatoren$Criterium == "vegetatie",], aes(x = BeoordelingTekst, fill = BeoordelingTekst)) + geom_bar() + facet_grid(Criterium ~ Indicator + AnalyseVariabele ) + labs(x = "Beoordeling" ,fill = "Beoordeling", title = paste("Beoordeling indicatoren habitattype ",HabCode))
+
+p2 <-ggplot(indicatoren[indicatoren$HabCode == HabCode & indicatoren$Criterium == "habitatstructuur",], aes(x = BeoordelingTekst, fill = BeoordelingTekst)) + geom_bar() + facet_grid(Criterium ~ AnalyseVariabele ) + labs(x = "Beoordeling" ,fill = "Beoordeling")
+
+p3 <- ggplot(indicatoren[indicatoren$HabCode == HabCode & indicatoren$Criterium == "verstoring",], aes(x = BeoordelingTekst, fill = BeoordelingTekst)) + geom_bar() + facet_grid(Criterium ~ AnalyseVariabele ) + labs(x = "Beoordeling" ,fill = "Beoordeling")
+
+grid.arrange(p1,p2,p3)
+
+  
+}
+
+plot_beoordeling2 <- function(DataIndicatoren, HabCode ){
+  
+p1 <- ggplot(indicatoren[indicatoren$HabCode == HabCode & indicatoren$Criterium == "vegetatie",], aes(x = AnalyseVariabele, fill = BeoordelingTekst)) + geom_bar() + facet_wrap(~ Criterium ) + labs(x = "Analysevariabele" ,fill = "Beoordeling", title = paste("Beoordeling indicatoren habitattype ",HabCode), y = "Aantal meetpunten") + coord_flip()
+#+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p2 <-ggplot(indicatoren[indicatoren$HabCode == HabCode & indicatoren$Criterium == "habitatstructuur",], aes(x = AnalyseVariabele, fill = BeoordelingTekst)) + geom_bar() + facet_wrap(~ Criterium ) + labs(x = "AnalyseVariabele" ,fill = "Beoordeling", y = "Aantal meetpunten") + coord_flip()
+#+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p3 <- ggplot(indicatoren[indicatoren$HabCode == HabCode & indicatoren$Criterium == "verstoring",], aes(x = AnalyseVariabele, fill = BeoordelingTekst)) + geom_bar() + facet_wrap(~ Criterium ) + labs(x = "AnalyseVariabele" ,fill = "Beoordeling", y = "Aantal meetpunten") + coord_flip()
+#+ theme(axis.text.x = element_text(angle = 90, hjust = 1)))
+
+grid.arrange(p1,p2,p3)
+
+  
+}
+```
+
+In \autoref{bijlage-1-overzicht-analysevariabelen-van-de-meetpunten} geven we voor elk habitattype de beoordelingstabel voor LSVI-versie2 en LSVI-versie3. Drempelwaarden uitgedrukt in abundantieklassen werden vertaald naar percentages bedekking (NA TE KIJKEN!) zodat de indicatoren beoordeeld kunnen worden aan de hand van de ingezamelde gegevens. De waarden en beoordeling van de analysevariabelen voor de verschillende meetpunten worden ook weergegeven in \autoref{bijlage-1-overzicht-analysevariabelen-van-de-meetpunten}.  
+
+
+```{r verkenningIndPlots2, warning = FALSE, message = FALSE, fig.height=7}
+
+statsAV <- summarise(group_by(indicatoren,HabCode,Criterium,Indicator, AnalyseVariabele, Eenheid, Drempelwaarde,Indicatortype, VersieLSVI),
+                      Gemiddelde = round(mean(Waarde, na.rm =TRUE),2),
+                      Variantie = round(var(Waarde, na.rm =TRUE),2),
+                      BI95_L = round(mean(Waarde, na.rm =TRUE) - 1.96* var(Waarde, na.rm =TRUE)^0.5/ n()^0.5,2),
+                      BI95_R = round(mean(Waarde, na.rm =TRUE) + 1.96* var(Waarde, na.rm =TRUE)^0.5/ n()^0.5,2),
+                      AandeelOngunstig = round(1 - sum(Beoordeling,na.rm =TRUE)/n(),2),
+                      n = n())
+
+statsAV2 <-indicatoren %>%
+  group_by(HabCode, VersieLSVI, Criterium, Indicator,  AnalyseVariabele, Eenheid, Drempelwaarde, Indicatortype) %>%
+  do(mean_cl_boot(.$Waarde))
+
+```
+
+\autoref{figAV} toont voor elke analysevariabele van LSVI-versie3 het gemiddelde en het bijhorende 95% betrouwbaarheidsinterval. \autoref{figAV_LSVI2} geeft dit weer voor LSVI-versie2.Gezien de meeste variabelen niet normaal verdeeld zijn, worden de betrouwbaarheidsintervallen berekend via bootstrapping. Zo vermijden we bijvoorbeeld dat de grenzen van de betrouwbaarheidsintervallenvoor bedekkingen kleiner dan 0 of groter dan 100 zijn. Ter informatie tonen we in de figuur ook de drempelwaarden, hoewel deze drempelwaarden niet bedoeld zijn om een gemiddelde van een indicator aan te toetsen.
+
+In de analyse hebben we nog geen rekening gehouden met het feit dat sommige meetpunten slechts gedeeltelijk uit doelhabitat bstaan. Hiervoor zouden we moeten gebruik maken van gewichten per meetpunt: to do. 
+
+
+```{r verkenningAV_LSVI3, warning = FALSE, message = FALSE, fig.height=8, fig.cap= "\\label{figAV} Gemiddelde waarde en 95% betrouwbaarheidsinterval van de analysevariabelen van LSVI-versie3"}
+indicatoren %>%
+  filter(VersieLSVI == "versie3") %>%
+  ggplot(aes(x = HabCode, y = Waarde)) +
+  stat_summary(fun.data = "mean_cl_boot" ) +
+  facet_wrap(~ AnalyseVariabele + Eenheid  , ncol =4, scales = "free_y", labeller = labeller(AnalyseVariabele = label_wrap_gen(17))) +
+  ylim(c(0,NA)) +
+  geom_point(data= filter(statsAV2, VersieLSVI == "versie3"), aes(x= HabCode, y=Drempelwaarde, shape = ifelse(Indicatortype == "positief", "Ondergrens", "Bovengrens"), colour = ifelse(Indicatortype == "positief", "Ondergrens", "Bovengrens")), size = 3) + 
+  scale_shape_manual(values=c(6,2)) + 
+  scale_colour_manual(values=c(inbo.rood, inbo.groen)) +
+  labs(colour= "Drempelwaarde", shape = "Drempelwaarde") +
+  theme(strip.text = element_text(size=8), legend.position = "bottom", axis.text.x = element_text(angle = 90, hjust = 1), axis.text = element_text(size=8))
+
+
+# 
+# ggplot(indicatoren, aes(x = AnalyseVariabele, fill = BeoordelingTekst)) + geom_bar(width = 0.5) + facet_grid(Criterium ~ HabCode , scales = "free", space = "free_y") + labs(x = "Analysevariabele" ,fill = "Beoordeling",  y = "Aantal meetpunten") + scale_fill_manual(values = colors_beoordeling) + geom_hline(aes(yintercept = Grens), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+#   theme(strip.text.y = element_text(angle = 0), legend.position = "bottom")  + coord_flip() 
+```
+
+```{r verkenningAV_LSVI2, warning = FALSE, message = FALSE, fig.height=8, fig.cap= "\\label{figAV_LSVI2} Gemiddelde waarde en 95% betrouwbaarheidsinterval van de analysevariabelen van LSVI-versie2"}
+indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  ggplot(aes(x = HabCode, y = Waarde)) +
+  stat_summary(fun.data = "mean_cl_boot" ) +
+  facet_wrap( ~ AnalyseVariabele + Eenheid, ncol =4, scales = "free_y", labeller = labeller(AnalyseVariabele = label_wrap_gen(17))) +
+  ylim(c(0,NA)) +
+  geom_point(data= filter(statsAV2, VersieLSVI == "versie2"), aes(x= HabCode, y=Drempelwaarde, shape = ifelse(Indicatortype == "positief", "Ondergrens", "Bovengrens"), colour = ifelse(Indicatortype == "positief", "Ondergrens", "Bovengrens")), size = 3) + 
+  scale_shape_manual(values=c(6,2)) + 
+  scale_colour_manual(values=c( inbo.rood, inbo.groen)) +
+  labs(colour= "Drempelwaarde", shape = "Drempelwaarde") +
+  theme(strip.text = element_text(size=8), legend.position = "bottom", axis.text.x = element_text(angle = 90, hjust = 1), axis.text = element_text(size=8))
+
+
+```
+
+\FloatBarrier
+
+```{r statsInd}
+
+
+
+
+statsInd <- summarise(group_by(indicatoren,HabCode,VersieLSVI,Criterium,Indicator, AnalyseVariabele, Eenheid, Drempelwaarde),
+                      Gemiddelde = round(mean(Waarde, na.rm =TRUE),2),
+                      Variantie = round(var(Waarde, na.rm =TRUE),2),
+                      BI95_L = round(mean(Waarde, na.rm =TRUE) - 1.96* var(Waarde, na.rm =TRUE)^0.5/ n()^0.5,2),
+                      BI95_R = round(mean(Waarde, na.rm =TRUE) + 1.96* var(Waarde, na.rm =TRUE)^0.5/ n()^0.5,2),
+                      AandeelOngunstig = round(1 - sum(Beoordeling,na.rm =TRUE)/n(),2),
+                      n = n())
+
+#kable(statsInd, align = "c", row.names = FALSE)
+```
+
+## Beoordeling van de indicatoren per meetpunt
+
+In een volgende stap kunnen we per meetpunt de indicatoren beoordelen door de waarde van de analysevariabele(n) te vergelijken met de drempelwaarde.  
+
+```{r aggergatiePerIndicator}
+#indicatoren <- mutate(group_by(indicatoren, HabCode, AnalyseVariabele),
+ #                      Grens = 0.25 * n())
+
+indicatoren_Ind <-  summarise(group_by(indicatoren,HabCode, VersieLSVI, IDPlots, Criterium,Indicator),
+                      BeoordelingCont = sum(Beoordeling,na.rm = TRUE)/n(),
+                      Combinatie = unique(Combinatie))
+
+indicatoren_Ind$BeoordelingBinair <- ifelse(is.na(indicatoren_Ind$Combinatie) | indicatoren_Ind$Combinatie =="" ,indicatoren_Ind$BeoordelingCont,
+                                         ifelse(indicatoren_Ind$Combinatie == "EN", indicatoren_Ind$BeoordelingCont == 1,
+                                                ifelse(indicatoren_Ind$Combinatie == "OF",indicatoren_Ind$BeoordelingCont > 0, NA )))
+
+indicatoren_Ind$BeoordelingTekst <- ifelse(indicatoren_Ind$BeoordelingBinair == 0, "Ongunstig", "Gunstig")
+
+indicatoren_Ind <- mutate(group_by(indicatoren_Ind, HabCode),
+                     Grens = 0.25 * n_distinct(IDPlots))
+
+indicatoren_Ind$IndicatorTekst <- factor(indicatoren_Ind$Indicator)
+levels(indicatoren_Ind$IndicatorTekst) <- gsub(" ", "\n", levels(indicatoren_Ind$IndicatorTekst))
+
+```
+
+\autoref{fig:indicatoren} en \autoref{fig:indicatoren_LSVI2} tonen per habitattype en per indicator het aantal gunstige en ongunstige meetpunten voor respectievelijk LSVI-versie3 en LSVI-versie2. De stippelijn komt overeen met 25% van de meetpunten. De 25%-grens werd in de habitatrapportage van 2013 gebruikt om de verschillende indicatoren te beoordelen op schaal Vlaanderen: een indicator voor een habitattype wordt globaal gezien als gunstig beschouwd als minder dan 25% van het habitat lokaal ongunstig is. 
+
+```{r aggergatiePerIndicator5, fig.cap= "\\label{fig:indicatoren} Aantal ongunstige en ongunstige meetpunten per indicator van LSVI-versie3; de stippellijn geeft de 25%-grens weer"}
+
+indicatoren_Ind %>%
+  filter(VersieLSVI == "versie3") %>%
+  ggplot( aes(x = IndicatorTekst, fill = BeoordelingTekst)) + geom_bar(width = 0.5) + facet_grid(Criterium ~ HabCode , scales = "free", space="free_y") + labs(x = "Indicator" ,fill = "Beoordeling meetpunt" , y = "Aantal meetpunten") + scale_fill_manual(values = colors_beoordeling) + geom_hline(aes(yintercept = Grens), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + coord_flip() 
+
+
+```
+
+
+```{r aggergatiePerIndicator_LSVI2, fig.cap= "\\label{fig:indicatoren_LSVI2} Aantal ongunstige en ongunstige meetpunten per indicator van LSVI-versie2; de stippellijn geeft de 25%-grens weer"}
+
+indicatoren_Ind %>%
+  filter(VersieLSVI == "versie2") %>%
+  ggplot( aes(x = IndicatorTekst, fill = BeoordelingTekst)) + geom_bar(width = 0.5) + facet_grid(Criterium ~ HabCode , scales = "free", space="free_y") + labs(x = "Indicator" ,fill = "Beoordeling meetpunt" , y = "Aantal meetpunten") + scale_fill_manual(values = colors_beoordeling) + geom_hline(aes(yintercept = Grens), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + coord_flip() 
+
+
+```
+
+Opvallend is het verschil tussen beide versies van de LSVI voor de indicator sleutelsoorten, vooral voor habitatsubtype 2330_bu en habitattype 4030. Dit heeft enerzijds te maken met de drempelwaarden die verschillen tussen beide versies, maar ook met de lijst van sleutelsoorten die verschillen \autoref{fig:sleutelsoorten}.Voor 2330_bu zien we bijvoorbeeld dat in een groot aantal meetpunten Zandstruisgras werd geobserveerd, wat een sleutelsoort is in LSVI-versie2 maar niet in LSVI-versie3. 
+
+```{r sleutelsoorten, fig.cap = "\\label{fig:sleutelsoorten}Overzicht van de geobserveerde sleutelsoorten per habitat(sub)type en voor de verschillende versies van de LSVI"}
+
+  connDB <-   odbcConnectAccess2007(dbLSVI)
+  soortenlijstLSVI <- sqlQuery(connDB, 'select * from tblSoortenlijst_LSVI_HeideEnBoshabitats')
+  odbcClose(connDB)
+  
+  soortenlijstLSVI <- rename(soortenlijstLSVI, NameSc = WetNaam)
+
+  vegSpecies <- getCoverSpeciesMHK(dbHeideEn6510_2016) %>%
+    left_join(plotHabtypes, by = "IDPlots") %>%
+    inner_join(soortenlijstLSVI, by = c("HabCode", "NameSc") ) %>%
+    filter(substr(Omschrijving,1,14) == "sleutelsoorten")
+  
+  vegSpecies$LSVI_versie <- ifelse(vegSpecies$Versie2 == 1 & vegSpecies$Versie3 == 1,
+                                   "LSVI-versie2 en LSVI-versie3",
+                                   ifelse(vegSpecies$Versie2 == 1 & vegSpecies$Versie3 == 0,
+                                          "Enkel LSVI-versie2",
+                                          ifelse(vegSpecies$Versie2 == 0 & vegSpecies$Versie3 == 1,
+                                                 "Enkel LSVI-versie3",NA)))
+  
+  ggplot(vegSpecies, aes(x = NameNl, fill = LSVI_versie)) + 
+    geom_bar() + 
+    facet_wrap(~HabCode, scales = "free") +
+    coord_flip() + 
+    scale_fill_manual(values =c(inbo.munt, inbo.grijsblauw, inbo.rood)) + 
+    theme(legend.position = "bottom") + 
+    labs(x= "Soort", y ="Aantal meepunten")
+    
+```
+
+
+
+
+\FloatBarrier
+
+## Beoordeling van de indicatoren op schaal Vlaanderen
+
+Voor de beoordeling van de indicatoren op schaal Vlaanderen testen we of het aandeel meetpunten dat ongunstig scoort significant verschilt van 25%. Hiervoor gebruiken we een tweezijdige biomiale test. Indien het aandeel meetpunten dat ongunstig scoort niet significant verschilt van 25%, kunnen we geen uitspraak doen (Beoordeling = "Unknown"). 
+
+\autoref{fig:indicatoren2} en \autoref{fig:indicatoren2_LSVI2} tonen per indicator en per habitat(sub)type het geschatte aandeel dat ongunstig scoort en de bijhorende 95%-betrouwbaarheidsintervallen respectievelijk voor voor LSVI-versie3 en voor LSVI-versie2.  Voor heel wat indicatoren is er nog geen uitspraak mogelijk. Dit heeft uiteraard te maken met de (voorlopig nog) beperkte steekproefgrootte. Ter herinnering: de totale steekpreofgrootte per habitattype is 170 en hiermeee kunnen we een absoluut verschil van ongeveer 10% (t.o.v. de  25%-grens) detecteren met een onderscheidend vermogen van 80% en een significantieniveau van 5%.
+
+```{r aggergatiePerIndicator2}
+# test1 <- select(filter(indicatoren_Ind, HabCode == "2330_bu" & Indicator == "horizontale_structuur"), BeoordelingBinair, HabCode, Indicator)
+# 
+# sum(test$BeoordelingBinair)/nrow(test)
+# 
+# tesje <- binom.test(nrow(test1) - sum(test1$BeoordelingBinair), n = nrow(test1), p = 0.25, alternative = "t")
+# tesje$p.value
+# 
+# 
+# tesje2 <- prop.test(nrow(test1) - sum(test1$BeoordelingBinair), n = nrow(test1), p = 0.25, alternative = "t")
+# tesje$p.value
+# 
+indicatoren_Ind <- ungroup(indicatoren_Ind)
+
+# indicatoren_ouderdomstructuur <- filter(indicatoren, Indicator== "ouderdomstructuur_struikhei")
+# 
+# indicatoren_ouderdomstructuur_wide <- spread(select(indicatoren_ouderdomstructuur,IDPlots,HabCode ,AnalyseVariabele,Waarde ), key = AnalyseVariabele, value = Waarde)
+# 
+# ggplot(indicatoren_ouderdomstructuur_wide, aes(x= factor(climaxOfDegradatieStadium), y = ouderdomstadia    )) + geom_point() + stat_sum() 
+
+
+# ?binom.test
+# 
+stats_indicatoren <- summarise(group_by(indicatoren_Ind,HabCode,VersieLSVI, Criterium,Indicator, IndicatorTekst),
+                      AandeelOngunstig = round((n() -sum(BeoordelingBinair,na.rm =TRUE))/n(),2),
+                      n = n(),
+                      binom.test_p = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25)$p.value,
+                      binom.test_est = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25)$estimate,
+                      binom.test_lc = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25)$conf.int[1],
+                      binom.test_rc = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25)$conf.int[2])
+
+stats_indicatoren$Uitspraak <- ifelse(stats_indicatoren$binom.test_p > 0.05, "Unknown",
+                                      ifelse(stats_indicatoren$AandeelOngunstig > 0.25, "Unfavourable", "Favourable" ))
+
+
+stats_indicatoren_p0.10 <- summarise(group_by(indicatoren_Ind,HabCode,VersieLSVI,Criterium,Indicator, IndicatorTekst),
+                      AandeelOngunstig = round((n() -sum(BeoordelingBinair,na.rm =TRUE))/n(),2),
+                      n = n(),
+                      binom.test_p = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25, conf.level = 0.90)$p.value,
+                      binom.test_est = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25, conf.level = 0.90)$estimate,
+                      binom.test_lc = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25, conf.level = 0.90)$conf.int[1],
+                      binom.test_rc = binom.test(n() - sum(BeoordelingBinair), n = n(), p = 0.25, conf.level = 0.90)$conf.int[2])
+
+stats_indicatoren_p0.10$Uitspraak <- ifelse(stats_indicatoren$binom.test_p > 0.10, "Unknown",
+                                      ifelse(stats_indicatoren$AandeelOngunstig > 0.25, "Unfavourable", "Favourable" ))
+
+#stats_indicatoren$Uitspraak_p0.10 <- ifelse(stats_indicatoren$binom.test_p > 0.10, "Unknown",
+ #                                     ifelse(stats_indicatoren$AandeelOngunstig > 0.25, #"Unfavourable", "Favourable" ))
+
+
+
+# 
+# indicatoren_Crit <- summarise(group_by(indicatoren_Ind,HabCode, IDPlots, Criterium),
+#                       BeoordelingCont = sum(BeoordelingBinair,na.rm = TRUE)/n(),
+#                       AantalGunstig =  sum(BeoordelingBinair,na.rm = TRUE))
+#   
+# indicatoren_Crit$BeoordelingBinair <- ifelse(indicatoren_Crit$BeoordelingCont == 1, 1,0)                    
+# 
+# indicatoren_Plot <- summarise(group_by(indicatoren_Crit,HabCode, IDPlots),
+#                       BeoordelingContGewogen = sum(BeoordelingCont,na.rm = TRUE)/n())
+# indicatoren_Plot$BeoordelingBinair <- ifelse(indicatoren_Plot$BeoordelingContGewogen == 1, 1,0)
+# 
+# temp <- summarise(group_by(indicatoren_Ind,HabCode, IDPlots),
+#                       BeoordelingCont = sum(BeoordelingBinair,na.rm = TRUE)/n())
+# 
+# indicatoren_Plot <- left_join(temp, indicatoren_Plot)
+# 
+# indicatoren_Crit$BeoordelingBinairTekst <- ifelse(indicatoren_Crit$BeoordelingBinair == 0, "Deel van de indicatoren ongunstig", "Alle indicatoren gunstig")
+# 
+# ggplot(indicatoren_Crit, aes(x = factor(AantalGunstig),fill = BeoordelingBinairTekst)) + geom_bar() + facet_grid(HabCode ~ Criterium, , scales = "free" ) + labs(x = "Aantal gunstige indicatoren", y = "Aantal plots", fill ="Beoordeling") 
+
+```
+
+
+
+
+```{r aggergatiePerIndicator4, fig.cap= "\\label{fig:indicatoren2} Geschatte aandeel van habitat(sub)type dat ongunstig scoort voor de verschillende indicatoren van LSVI-versie3, de bijhoreden betrouwbaarheidsintervallen en de beoordeling op Vlaamse schaal bij significantieniveau van 0.05"}
+
+stats_indicatoren %>%
+  filter(VersieLSVI == "versie3") %>%
+  ggplot(aes(x = IndicatorTekst, y= binom.test_est, ymin= binom.test_lc, ymax = binom.test_rc , colour = Uitspraak)) + 
+  geom_point(size = 3) +
+  geom_errorbar() +
+  facet_grid(Criterium ~ HabCode , scales = "free_y", space="free_y") + labs(x = "Indicator" ,colour = "Beoordeling Vlaamse schaal" , y = "Aandeel ongunstig") + 
+  scale_colour_manual(values = c(inbo.groen, inbo.rood,inbo.grijs)) + 
+  geom_hline(aes(yintercept = 0.25), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
+  coord_flip() +
+  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1))
+
+```
+
+
+
+```{r aggergatiePerIndicator2_LSVI2, fig.cap= "\\label{fig:indicatoren2_LSVI2} Geschatte aandeel van habitat(sub)type dat ongunstig scoort voor de verschillende indicatoren van LSVI-versie2, de bijhoreden betrouwbaarheidsintervallen en de beoordeling op Vlaamse schaal bij significantieniveau van 0.05"}
+
+stats_indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  ggplot(aes(x = IndicatorTekst, y= binom.test_est, ymin= binom.test_lc, ymax = binom.test_rc , colour = Uitspraak)) + 
+  geom_point(size = 3) +
+  geom_errorbar() +
+  facet_grid(Criterium ~ HabCode , scales = "free_y", space="free_y") + labs(x = "Indicator" ,colour = "Beoordeling Vlaamse schaal" , y = "Aandeel ongunstig") + 
+  scale_colour_manual(values = c(inbo.groen, inbo.rood,inbo.grijs)) + 
+  geom_hline(aes(yintercept = 0.25), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
+  coord_flip() +
+  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1))
+
+```
+
+
+Voor LSVI-versie3 is momenteel is enkel de beoordeling van de indicator 'verruiging' voor habitattype 2310 en 4030 gunstig op Vlaamse schaal met respectievelijk 0% en 3% van de meetpunten die ongunstig scoren. LSVI-versie2 beschouwdt 'verruiging' niet als een aparte indicator maar beoordeelt de gezamenlijke bedekking van 'verruiging' en 'vergrassing'. Voor LSVI-versie 2 is enkel 'verbossing' voor habitattype 4010 gunstig. Dit komt doordat de drempelwaarde hoger ligt dan bij LSVI-versie3 (< 30% i.p.v. < 10 %)   
+
+Het aandeel ongunstige meetpunten voor indicator 'invasieve exoten' van habiattype 2330_bu en 4030 (respectievelijk 10% en 11%) is net niet significant verschillend van 25%, met p-waarden die iets hoger liggen dan 0.05. In dergelijke gevallen kunnen we met voldoende zekerheid oordelen dat de indicatoren gunstig zijn op Vlaamse schaal. Voor 4030 is deze indicator echter enkel opgenomen in LSVI-versie3.   
+
+Wanneer we 0.10 als significantieniveau nemen dan zijn er uiteraard minder indicatoren waarvoor er geen beoordeling mogelijk is (\autoref{fig:indicatoren3} en \autoref{fig:indicatoren3_LSVI2}). Dit gaat samen met een hogere type I-fout: de kans dat we een verschil detecteren op basis van het meetnet wanneer er in de werkelijkheid geen verschil is bedraagt 10% i.p.v. 5%. Dit is een afweging die gemaakt moet worden bij de uiteindelijke rapportage.
+
+```{r aggergatiePerIndicator3, fig.cap= "\\label{fig:indicatoren3} Geschatte aandeel van habitat(sub)type dat ongunstig scoort voor de verschillende LSVI-indicatoren, de bijhoreden betrouwbaarheidsintervallen en de beoordeling op Vlaamse schaal bij significantieniveau van 0.10"}
+
+stats_indicatoren_p0.10 %>%
+  filter(VersieLSVI == "versie3") %>%
+  ggplot(aes(x = Indicator, y= binom.test_est, ymin= binom.test_lc, ymax = binom.test_rc , colour = Uitspraak)) + 
+  geom_point(size = 3) +
+  geom_errorbar() +
+  facet_grid(Criterium ~ HabCode , scales = "free_y", space="free_y") + labs(x = "Indicator" ,colour = "Beoordeling Vlaamse schaal" , y = "Aandeel ongunstig") + 
+  scale_colour_manual(values = c(inbo.groen, inbo.rood,inbo.grijs)) + 
+  geom_hline(aes(yintercept = 0.25), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
+  coord_flip() +
+  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1))
+
+```
+
+
+```{r aggergatiePerIndicator3_LSVI2, fig.cap= "\\label{fig:indicatoren3_LSVI2} Geschatte aandeel van habitat(sub)type dat ongunstig scoort voor de verschillende LSVI-indicatoren, de bijhoreden betrouwbaarheidsintervallen en de beoordeling op Vlaamse schaal bij significantieniveau van 0.10"}
+
+stats_indicatoren_p0.10 %>%
+  filter(VersieLSVI == "versie2") %>%
+  ggplot(aes(x = Indicator, y= binom.test_est, ymin= binom.test_lc, ymax = binom.test_rc , colour = Uitspraak)) + 
+  geom_point(size = 3) +
+  geom_errorbar() +
+  facet_grid(Criterium ~ HabCode , scales = "free_y", space="free_y") + labs(x = "Indicator" ,colour = "Beoordeling Vlaamse schaal" , y = "Aandeel ongunstig") + 
+  scale_colour_manual(values = c(inbo.groen, inbo.rood,inbo.grijs)) + 
+  geom_hline(aes(yintercept = 0.25), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
+  coord_flip() +
+  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1))
+
+```
+
+Opvallend is de slechte scores voor de indicator 'sleutelsoorten'. Dit kan verklaard worden doordat drempelwaarden uit de LSVI-tabellen bedoeld zijn op schaal van een vegetatievlek, terwijl in het meetnet enkel binnen een 3m x 3m-plot gekeken wordt. Een aangepaste beoordeling is hier aangewezen. Een optie is om de drempelwaarde (op lokaal niveau) aan te passen. Anderzijds zou er ook dremeplwaarde op Vlaamse schaal bepaald kunnen worden waaraan het gemiddeld aantal sleutelsoorten voor een habitattype aan kan afgetoetst worden.
+
+
+We wijzen ook op een aantal indicatoren waarvoor de gemiddelde waarde voor Vlaanderen significant lager (of hoger) is dan de drempelwaarde, maar waarvoor een groot deel van de meetpunten toch ongunstig scoort en bijgevolg de beoordeling op Vlaams niveau ongunstig is. Dit is bijvoorbeeld het geval voor 'horizontale structuur' voor 2310 (LSVI-versie3). De gemiddelde bedekking van 'open vegetatie en kaal zand' bedraagt 21% (met 95%- betrouwbaarheidsinterval tussen 11,6% en 30,4%) en ligt dus een eind boven de drempelwaarde van 10 %. Toch scoort 67% van de meetpunten (lokaal) ongunstig. Er zijn dus heel wat plots met zeer lage bedekkingen en enkele plots met een zeer hoge bedekking (\autoref{fig:fig2310}). De schaal waarop de beoordeling gebeurt speelt hier dus een heel bepalende rol. Als de oppervlakte van de te beoordelen locatie toeneemt, zal een groter aandeel van de locaties gunstig scoren. Wij zien gelijkaardige zaken bij de indicatoren 'horizontale structuur' bij 2330_bu (LSVI-versie3), 'vergrassing' bij 2330_bu, 4010 en 4030 (LSVI-versie3), 'korstmosvegetaties' bij 2330_bu (LSVI-versie2) en 'moslaag' bij 2310 (LSVI-versie2). 
+
+# Vergelijking resultaten met HR-rapportage 2013
+
+
+```{r HR-rapportage, warning = FALSE, message = FALSE}
+
+rapportage2013 <- read.csv2("Data/Rapportage2013/rapportage2013_Heide.csv") 
+
+rapportage2013 <- rapportage2013 %>%
+  rename(Uitspraak = Beoordeling )
+
+rapportage2013$AandeelOngunstig <- rapportage2013$AandeelOngunstig/100
+rapportage2013$Bron <- "Rapportage2013"
+rapportage2013$Criterium <- tolower(rapportage2013$Criterium)
+
+vergelijking <- stats_indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  full_join(rapportage2013, by =c("HabCode", "Indicator"))
+ 
+
+meetnet <- stats_indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  ungroup() %>%
+  select(HabCode, Criterium, Indicator, AandeelOngunstig, Uitspraak, binom.test_lc, binom.test_rc)
+
+meetnet$Bron <- "Meetnet habitatkwaliteit"
+
+vergelijking <- rbind.fill(select(rapportage2013, HabCode, Criterium, Indicator, AandeelOngunstig, Uitspraak, Bron),
+                           meetnet)
+
+vergelijking$IndicatorTekst <- factor(vergelijking$Indicator)
+levels(vergelijking$IndicatorTekst) <- gsub(" ", "\n", levels(vergelijking$IndicatorTekst))
+
+unique(vergelijking$Criterium)
+
+```
+
+
+```{r ver, fig.cap= "\\label{fig:indicatoren2_LSVI2} Geschatte aandeel van habitat(sub)type dat ongunstig scoort voor de verschillende indicatoren van LSVI-versie2, de bijhoreden betrouwbaarheidsintervallen en de beoordeling op Vlaamse schaal bij significantieniveau van 0.05"}
+
+vergelijking %>%
+  filter(!is.na(AandeelOngunstig)) %>%
+  ggplot(aes(x = IndicatorTekst, y= AandeelOngunstig, ymin= binom.test_lc, ymax = binom.test_rc , colour = Uitspraak, shape = Bron)) + 
+  geom_point(size = 3, alpha = 0.5) +
+  geom_errorbar() +
+  facet_grid(Criterium ~ HabCode , scales = "free_y", space="free_y") + 
+  labs(x = "Indicator" ,colour = "Beoordeling" , y = "Aandeel ongunstig") + 
+  scale_colour_manual(values = c(inbo.groen, inbo.rood,inbo.grijs)) + 
+  geom_hline(aes(yintercept = 0.25), colour = "black", size = 0.5, linetype = "dashed", alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), legend.position = "bottom", strip.text = element_text(size =8), axis.text = element_text(size =8)) + 
+  coord_flip() +
+  scale_y_continuous(breaks=c(0 ,0.5, 1), limits = c(0,1))
+
+```
+
+# Bijlage 1 Overzicht analysevariabelen van de meetpunten
+
+## Habitattype 2310
+
+```{r verkenningAV_2310, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "2310", VersieLSVI == "versie3") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab2310}Overzicht analysevariabelen voor LSVI-versie3 voor habitattype 2310")
+
+```
+
+
+```{r verkenningAV_2310_LSVI2, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "2310", VersieLSVI == "versie2") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab2310}Overzicht analysevariabelen voor LSVI-versie2 voor habitattype 2310")
+
+```
+
+
+
+
+
+```{r figuurAV_2310, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig2310} Overzicht analysevariabelen van LSVI-versie3 voor de meetpunten van habitattype 2310"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie3") %>%
+  plot_indicatoren(HabCode =  "2310")
+```
+
+
+
+```{r figuurAV_2310_LSVI2, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig2310_LSVI2} Overzicht analysevariabelen van LSVI-versie2 voor de meetpunten van habitattype 2310"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  plot_indicatoren(HabCode =  "2310")
+```
+
+
+\FloatBarrier
+
+## Habitattype 2330_bu
+
+```{r verkenningAV_2330_bu, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "2330_bu", VersieLSVI == "versie3") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab2330_bu}Overzicht analysevariabelen voor LSVI-versie3 voor habitattype 2330_bu")
+
+```
+
+
+```{r verkenningAV_2330_bu_LSVI2, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "2330_bu", VersieLSVI == "versie2") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab2330_bu}Overzicht analysevariabelen voor LSVI-versie2 voor habitattype 2330_bu")
+
+```
+
+
+```{r figuurAV_2330_bu, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig2330_bu} Overzicht analysevariabelen van LSVI-versie3 voor de meetpunten van habitattype 2330_bu"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie3") %>%
+  plot_indicatoren(HabCode =  "2330_bu")
+```
+
+
+```{r figuurAV_2330_bu_LSVI2, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig2330_bu_LSVI2} Overzicht analysevariabelen van LSVI-versie2 voor de meetpunten van habitattype 2330_bu"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  plot_indicatoren(HabCode =  "2330_bu")
+```
+
+
+\FloatBarrier
+
+## Habitattype 4010
+
+```{r verkenningAV_4010, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "4010", VersieLSVI == "versie3") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab4010}Overzicht analysevariabelen voor LSVI-versie3 voor habitattype 4010")
+
+```
+
+
+```{r verkenningAV_4010_LSVI2, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "4010", VersieLSVI == "versie2") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab4010}Overzicht analysevariabelen voor LSVI-versie2 voor habitattype 4010")
+
+```
+
+
+```{r figuurAV_4010, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig4010} Overzicht analysevariabelen van LSVI-versie3 voor de meetpunten van habitattype 4010"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie3") %>%
+  plot_indicatoren(HabCode =  "4010")
+```
+
+
+```{r figuurAV_4010_LSVI2, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig4010_LSVI2} Overzicht analysevariabelen van LSVI-versie2 voor de meetpunten van habitattype 4010"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  plot_indicatoren(HabCode =  "4010")
+```
+
+
+\FloatBarrier
+
+## Habitattype 4030
+
+```{r verkenningAV_4030, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "4030", VersieLSVI == "versie3") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab4030}Overzicht analysevariabelen voor LSVI-versie3 voor habitattype 4030")
+
+```
+
+
+```{r verkenningAV_4030_LSVI2, warning = FALSE, message = FALSE, results = 'asis'}
+
+pandoc.table(overzicht_indicatoren %>%
+               filter(HabCode == "4030", VersieLSVI == "versie2") %>%
+               select(-HabCode, -VersieLSVI),
+             split.cells = c(20, 10, 13, 5,5),
+             caption = "\\label{tab:LSVIhab4030}Overzicht analysevariabelen voor LSVI-versie2 voor habitattype 4030")
+
+```
+
+
+```{r figuurAV_4030, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig4030} Overzicht analysevariabelen van LSVI-versie3 voor de meetpunten van habitattype 4030"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie3") %>%
+  plot_indicatoren(HabCode =  "4030")
+```
+
+
+```{r figuurAV_4030_LSVI2, warning = FALSE, message = FALSE, fig.height=6.5, fig.cap= "\\label{fig:fig4030_LSVI2} Overzicht analysevariabelen van LSVI-versie2 voor de meetpunten van habitattype 4030"}
+
+indicatoren %>%
+  filter(VersieLSVI == "versie2") %>%
+  plot_indicatoren(HabCode =  "4030")
+```
